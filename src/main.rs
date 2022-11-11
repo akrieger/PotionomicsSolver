@@ -42,9 +42,9 @@ impl PartialEq for Ingredient {
 impl PartialOrd for Ingredient {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        let cmp = self.sense_score().partial_cmp(&other.sense_score());
+        let cmp = self.mutamin.partial_cmp(&other.mutamin);
         if cmp == Some(std::cmp::Ordering::Equal) {
-            self.mutamin.partial_cmp(&other.mutamin)
+            self.sense_score().partial_cmp(&other.sense_score())
         } else {
             cmp
         }
@@ -57,7 +57,7 @@ impl Ingredient {
     }
 
     pub fn load(filename: &str) -> Vec<Ingredient> {
-        utils::get_input(filename).filter(|line| !line.starts_with("#") && line.len() > 1)
+        utils::get_input(filename).filter(|line| !line.starts_with("#") && !line.starts_with("//") && line.len() > 1)
         .map(|line| {
             let mut a = 0;
             let mut b = 0;
@@ -148,9 +148,9 @@ impl PartialEq for IngredientRatio {
 impl PartialOrd for IngredientRatio {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        let mut cmp = self.sense_score().partial_cmp(&other.sense_score());
+        let mut cmp = self.max.partial_cmp(&other.max);
         if cmp == Some(std::cmp::Ordering::Equal) {
-            cmp = self.max.partial_cmp(&other.max);
+            cmp = self.sense_score().partial_cmp(&other.sense_score());
         }
         if cmp == Some(std::cmp::Ordering::Equal) {
             cmp = other.price.partial_cmp(&self.price);
@@ -271,7 +271,7 @@ pub fn solve<'a>(ingredient_pool: &'a[Ingredient], candidate_recipe: &mut Vec<&'
 }
 
 pub fn print(prefix: &str, count: usize, magimins: usize, sense: isize, price: usize, ingredients: &Vec<&str>) {
-    let mut c = 1;
+    let mut c = 0;
     let mut curr_name = &ingredients[0];
     let mut compact_names = Vec::new();
     for name in ingredients.iter() {
@@ -292,10 +292,10 @@ pub fn main() {
     let mut acc = Vec::new();
     let mut candidate_recipe = Vec::new();
     let target = IngredientRatio{
-        a: 2,
-        b: 0,
-        c: 1,
-        d: 1,
+        a: 0,
+        b: 3,
+        c: 4,
+        d: 3,
         e: 0,
 
         taste: 0,
@@ -304,13 +304,13 @@ pub fn main() {
         smell: 0,
         sound: 0,
     
-        count: 10,
-        min: 480,
-        max: 575,
-        price: 0,
+        count: 8,
+        min: 200,
+        max: 200,
+        price: 200,
     };
 
-    let mut ingredients = Ingredient::load("ingredients");
+    let mut ingredients = Ingredient::load("ingredients.rs");
     let old_len = ingredients.len();
     ingredients.retain(|i| target.is_possible_ingredient(i) );
     ingredients.sort();

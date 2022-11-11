@@ -3,17 +3,6 @@
 version = 3
 
 [[package]]
-name = "PotionomicsSolver"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "lazy_static",
- "regex",
- "strum",
- "strum_macros",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "0.7.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -48,6 +37,17 @@ name = "memchr"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
+
+[[package]]
+name = "potionnomics_solver"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "lazy_static",
+ "regex",
+ "strum",
+ "strum_macros",
+]
 
 [[package]]
 name = "proc-macro2"

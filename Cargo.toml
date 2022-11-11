@@ -1,5 +1,5 @@
 [package]
-name = "PotionomicsSolver"
+name = "potionnomics_solver"
 version = "0.1.0"
 authors = ["Kellie Medlin <kellie.medlin@gmail.com>"]
 edition = "2021"
