@@ -1,8 +1,8 @@
 mod utils;
 
-use lazy_static::lazy_static;
-use ::regex::Regex;
 use ::regex;
+use ::regex::Regex;
+use lazy_static::lazy_static;
 
 lazy_static! {
     static ref NAME_RE: Regex = regex!(r"^([a-zA-Z]+)\s");
@@ -30,6 +30,8 @@ pub struct Ingredient {
     sound: isize,
 
     price: usize,
+
+    num_available: Option<usize>,
 }
 
 impl PartialEq for Ingredient {
@@ -57,29 +59,30 @@ impl Ingredient {
     }
 
     pub fn load(filename: &str) -> Vec<Ingredient> {
-        utils::get_input(filename).filter(|line| !line.starts_with("#") && !line.starts_with("//") && line.len() > 1)
-        .map(|line| {
-            let mut a = 0;
-            let mut b = 0;
-            let mut c = 0;
-            let mut d = 0;
-            let mut e = 0;
-            let mut taste = 0;
-            let mut feel = 0;
-            let mut sight = 0;
-            let mut smell = 0;
-            let mut sound = 0;
-    
+        utils::get_input(filename)
+            .filter(|line| !line.starts_with("#") && !line.starts_with("//") && line.len() > 1)
+            .map(|line| {
+                let mut a = 0;
+                let mut b = 0;
+                let mut c = 0;
+                let mut d = 0;
+                let mut e = 0;
+                let mut taste = 0;
+                let mut feel = 0;
+                let mut sight = 0;
+                let mut smell = 0;
+                let mut sound = 0;
+
                 for captures in MAGIMIN_RE.captures_iter(&line) {
                     let m = &captures[1];
                     let value = captures[2].parse::<usize>().unwrap();
                     match m {
-                        "a" => {a = value}
-                        "b" => {b = value}
-                        "c" => {c = value}
-                        "d" => {d = value}
-                        "e" => {e = value}
-                        _ => panic!()
+                        "a" => a = value,
+                        "b" => b = value,
+                        "c" => c = value,
+                        "d" => d = value,
+                        "e" => e = value,
+                        _ => panic!(),
                     };
                 }
 
@@ -87,36 +90,40 @@ impl Ingredient {
                     let value = &captures[1];
                     let sense = &captures[2];
                     let sense_value = match value {
-                        "+" => { 1 }
-                        "-" => { -1 }
-                        _ => panic!()
+                        "+" => 1,
+                        "-" => -1,
+                        _ => panic!(),
                     };
                     match sense {
-                        "taste" => {taste = sense_value}
-                        "feel" => {feel = sense_value}
-                        "sight" => {sight = sense_value}
-                        "smell" => {smell = sense_value}
-                        "sound" => {sound = sense_value}
-                        _ => panic!()
+                        "taste" => taste = sense_value,
+                        "feel" => feel = sense_value,
+                        "sight" => sight = sense_value,
+                        "smell" => smell = sense_value,
+                        "sound" => sound = sense_value,
+                        _ => panic!(),
                     };
                 }
 
-            Ingredient {
+                Ingredient {
                     name: NAME_RE.captures_iter(&line).next().unwrap()[1].to_owned(),
                     a,
                     b,
                     c,
                     d,
                     e,
-                    mutamin: a+b+c+d+e,
+                    mutamin: a + b + c + d + e,
                     taste,
                     feel,
                     sight,
                     smell,
                     sound,
-                    price: PRICE_RE.captures_iter(&line).next().unwrap()[1].parse::<usize>().unwrap(),
+                    price: PRICE_RE.captures_iter(&line).next().unwrap()[1]
+                        .parse::<usize>()
+                        .unwrap(),
+                    num_available: None,
                 }
-        }).collect()
+            })
+            .collect()
     }
 }
 
@@ -171,7 +178,11 @@ impl IngredientRatio {
     }
 
     pub fn sense_score(&self) -> isize {
-        IngredientRatio::clamp_sense(self.taste) + IngredientRatio::clamp_sense(self.feel) + IngredientRatio::clamp_sense(self.sight) + IngredientRatio::clamp_sense(self.smell) + IngredientRatio::clamp_sense(self.sound)
+        IngredientRatio::clamp_sense(self.taste)
+            + IngredientRatio::clamp_sense(self.feel)
+            + IngredientRatio::clamp_sense(self.sight)
+            + IngredientRatio::clamp_sense(self.smell)
+            + IngredientRatio::clamp_sense(self.sound)
     }
 
     pub fn senses_satisfied(&self, t: &IngredientRatio) -> bool {
@@ -190,14 +201,16 @@ impl IngredientRatio {
         let im = [i.a, i.b, i.c, i.d, i.e];
         for i in 0..tm.len() {
             if im[i] > 0 && tm[i] == 0 {
-                return false
+                return false;
             }
         }
         true
     }
 
     fn satisfying_ratio(&self, target: &IngredientRatio) -> Option<usize> {
-        if self.count == 0 { return Some(0); }
+        if self.count == 0 {
+            return Some(0);
+        }
         let sm = [self.a, self.b, self.c, self.d, self.e];
         let tm = [target.a, target.b, target.c, target.d, target.e];
         let mut target_ratio = 0;
@@ -211,7 +224,9 @@ impl IngredientRatio {
                 return None;
             }
 
-            if mismatch { continue; }
+            if mismatch {
+                continue;
+            }
 
             mismatch |= sm[i] == 0 && tm[i] != 0 || sm[i] % tm[i] > 0;
 
@@ -226,26 +241,53 @@ impl IngredientRatio {
     }
 }
 
-pub fn solve<'a>(ingredient_pool: &'a[Ingredient], candidate_recipe: &mut Vec<&'a str>, candidate_ratio: &IngredientRatio, target_ratio: &IngredientRatio, acc: &mut Vec<(Vec<&'a str>, IngredientRatio)>) {
-    if (target_ratio.price > 0 && candidate_ratio.price > target_ratio.price) || candidate_ratio.count > target_ratio.count || candidate_ratio.max > target_ratio.max {
+pub fn solve<'a>(
+    ingredient_pool: &'a [Ingredient],
+    candidate_recipe: &mut Vec<&'a str>,
+    candidate_ratio: &IngredientRatio,
+    target_ratio: &IngredientRatio,
+    acc: &mut Vec<(Vec<&'a str>, IngredientRatio)>,
+) {
+    if (target_ratio.price > 0 && candidate_ratio.price > target_ratio.price)
+        || candidate_ratio.count > target_ratio.count
+        || candidate_ratio.max > target_ratio.max
+    {
         return;
     }
 
     let curr_scale = match candidate_ratio.satisfying_ratio(target_ratio) {
-        None => { return; }
-        Some(s) => s
+        None => {
+            return;
+        }
+        Some(s) => s,
     };
 
     if ingredient_pool.len() == 0 {
-        if curr_scale > 0 && candidate_ratio.max >= target_ratio.min && candidate_ratio.senses_satisfied(target_ratio) {
-            print("++ ", candidate_ratio.count, candidate_ratio.max, candidate_ratio.sense_score(), candidate_ratio.price, &candidate_recipe);
+        if curr_scale > 0
+            && candidate_ratio.max >= target_ratio.min
+            && candidate_ratio.senses_satisfied(target_ratio)
+        {
+            print(
+                "++ ",
+                candidate_ratio.count,
+                candidate_ratio.max,
+                candidate_ratio.sense_score(),
+                candidate_ratio.price,
+                &candidate_recipe,
+            );
             acc.push((candidate_recipe.to_owned(), candidate_ratio.clone()));
         }
         return;
     }
 
     // either we choose to ignore the current ingredient...
-    solve(&ingredient_pool[1..ingredient_pool.len()], candidate_recipe, candidate_ratio, target_ratio, acc);
+    solve(
+        &ingredient_pool[1..ingredient_pool.len()],
+        candidate_recipe,
+        candidate_ratio,
+        target_ratio,
+        acc,
+    );
 
     // ...or we try adding the current ingredient, with the potential to add more copies of it
     let i = &ingredient_pool[0];
@@ -266,11 +308,24 @@ pub fn solve<'a>(ingredient_pool: &'a[Ingredient], candidate_recipe: &mut Vec<&'
         price: candidate_ratio.price + i.price,
     };
     candidate_recipe.push(&i.name);
-    solve(ingredient_pool, candidate_recipe, &new_ratio, target_ratio, acc);
+    solve(
+        ingredient_pool,
+        candidate_recipe,
+        &new_ratio,
+        target_ratio,
+        acc,
+    );
     candidate_recipe.pop();
 }
 
-pub fn print(prefix: &str, count: usize, magimins: usize, sense: isize, price: usize, ingredients: &Vec<&str>) {
+pub fn print(
+    prefix: &str,
+    count: usize,
+    magimins: usize,
+    sense: isize,
+    price: usize,
+    ingredients: &Vec<&str>,
+) {
     let mut c = 0;
     let mut curr_name = &ingredients[0];
     let mut compact_names = Vec::new();
@@ -285,13 +340,21 @@ pub fn print(prefix: &str, count: usize, magimins: usize, sense: isize, price: u
     }
     compact_names.push(format!("{}x {}", c, curr_name));
 
-    println!("{}{} ingredients, {} magimins, {} sense score, ${}\n\t{}", prefix, count, magimins, sense, price, compact_names.join("\n\t"));
+    println!(
+        "{}{} ingredients, {} magimins, {} sense score, ${}\n\t{}",
+        prefix,
+        count,
+        magimins,
+        sense,
+        price,
+        compact_names.join("\n\t")
+    );
 }
 
 pub fn main() {
     let mut acc = Vec::new();
     let mut candidate_recipe = Vec::new();
-    let target = IngredientRatio{
+    let target = IngredientRatio {
         a: 0,
         b: 3,
         c: 4,
@@ -303,7 +366,7 @@ pub fn main() {
         sight: 0,
         smell: 0,
         sound: 0,
-    
+
         count: 8,
         min: 200,
         max: 200,
@@ -312,14 +375,31 @@ pub fn main() {
 
     let mut ingredients = Ingredient::load("ingredients.rs");
     let old_len = ingredients.len();
-    ingredients.retain(|i| target.is_possible_ingredient(i) );
+    ingredients.retain(|i| target.is_possible_ingredient(i));
     ingredients.sort();
 
-    println!("Found {} ingredients, only {} are candidates", old_len, ingredients.len());
+    println!(
+        "Found {} ingredients, only {} are candidates",
+        old_len,
+        ingredients.len()
+    );
 
-    solve(&ingredients.as_slice(), &mut candidate_recipe, &IngredientRatio::default(), &target, &mut acc);
-    acc.sort_by_key(|(_, ratio)| ratio.clone() );
+    solve(
+        &ingredients.as_slice(),
+        &mut candidate_recipe,
+        &IngredientRatio::default(),
+        &target,
+        &mut acc,
+    );
+    acc.sort_by_key(|(_, ratio)| ratio.clone());
     for (names, ratio) in acc.into_iter() {
-        print("", ratio.count, ratio.max, ratio.sense_score(), ratio.price, &names);
+        print(
+            "",
+            ratio.count,
+            ratio.max,
+            ratio.sense_score(),
+            ratio.price,
+            &names,
+        );
     }
 }
