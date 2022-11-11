@@ -58,7 +58,7 @@ impl Ingredient {
         self.taste + self.feel + self.sight + self.smell + self.sound
     }
 
-    pub fn load(filename: &str) -> Vec<Ingredient> {
+    pub fn load(filename: &str) -> Vec<(Ingredient, Option<usize>)> {
         utils::get_input(filename)
             .filter(|line| !line.starts_with("#") && !line.starts_with("//") && line.len() > 1)
             .map(|line| {
@@ -104,24 +104,27 @@ impl Ingredient {
                     };
                 }
 
-                Ingredient {
-                    name: NAME_RE.captures_iter(&line).next().unwrap()[1].to_owned(),
-                    a,
-                    b,
-                    c,
-                    d,
-                    e,
-                    mutamin: a + b + c + d + e,
-                    taste,
-                    feel,
-                    sight,
-                    smell,
-                    sound,
-                    price: PRICE_RE.captures_iter(&line).next().unwrap()[1]
-                        .parse::<usize>()
-                        .unwrap(),
-                    num_available: None,
-                }
+                (
+                    Ingredient {
+                        name: NAME_RE.captures_iter(&line).next().unwrap()[1].to_owned(),
+                        a,
+                        b,
+                        c,
+                        d,
+                        e,
+                        mutamin: a + b + c + d + e,
+                        taste,
+                        feel,
+                        sight,
+                        smell,
+                        sound,
+                        price: PRICE_RE.captures_iter(&line).next().unwrap()[1]
+                            .parse::<usize>()
+                            .unwrap(),
+                        num_available: None,
+                    },
+                    None,
+                )
             })
             .collect()
     }
@@ -242,7 +245,8 @@ impl IngredientRatio {
 }
 
 pub fn solve<'a>(
-    ingredient_pool: &'a [Ingredient],
+    ingredient_pool: &'a [(Ingredient, Option<usize>)],
+    mut num_available: Option<usize>,
     candidate_recipe: &mut Vec<&'a str>,
     candidate_ratio: &IngredientRatio,
     target_ratio: &IngredientRatio,
@@ -283,14 +287,24 @@ pub fn solve<'a>(
     // either we choose to ignore the current ingredient...
     solve(
         &ingredient_pool[1..ingredient_pool.len()],
+        None,
         candidate_recipe,
         candidate_ratio,
         target_ratio,
         acc,
     );
 
+
     // ...or we try adding the current ingredient, with the potential to add more copies of it
-    let i = &ingredient_pool[0];
+    let (i, c) = &ingredient_pool[0];
+    if num_available.is_none() {
+        num_available = *c;
+    }
+    num_available = match num_available {
+        Some(0) => { return; }
+        Some(x) => Some(x-1),
+        None => None,
+    };
     let new_ratio = IngredientRatio {
         a: candidate_ratio.a + i.a,
         b: candidate_ratio.b + i.b,
@@ -310,6 +324,7 @@ pub fn solve<'a>(
     candidate_recipe.push(&i.name);
     solve(
         ingredient_pool,
+        num_available,
         candidate_recipe,
         &new_ratio,
         target_ratio,
@@ -375,7 +390,7 @@ pub fn main() {
 
     let mut ingredients = Ingredient::load("ingredients.rs");
     let old_len = ingredients.len();
-    ingredients.retain(|i| target.is_possible_ingredient(i));
+    ingredients.retain(|(i, _)| target.is_possible_ingredient(i));
     ingredients.sort();
 
     println!(
@@ -386,6 +401,7 @@ pub fn main() {
 
     solve(
         &ingredients.as_slice(),
+        None,
         &mut candidate_recipe,
         &IngredientRatio::default(),
         &target,
