@@ -5,10 +5,11 @@ use ::regex::Regex;
 use lazy_static::lazy_static;
 
 lazy_static! {
-    static ref NAME_RE: Regex = regex!(r"^([a-zA-Z]+)\s");
+    static ref NAME_RE: Regex = regex!(r"(^|\s)([a-zA-Z]+)\s");
     static ref MAGIMIN_RE: Regex = regex!(r"([a-e])(\d+)");
     static ref SENSE_RE: Regex = regex!(r"([+|-])(taste|feel|sight|smell|sound)");
-    static ref PRICE_RE: Regex = regex!(r"\s(\d+)$");
+    static ref PRICE_RE: Regex = regex!(r"\$(\d+)");
+    static ref NUM_AVAILABLE_RE: Regex = regex!(r"x(\d+)");
 }
 
 #[derive(Debug, Eq, Ord)]
@@ -30,8 +31,6 @@ pub struct Ingredient {
     sound: isize,
 
     price: usize,
-
-    num_available: Option<usize>,
 }
 
 impl PartialEq for Ingredient {
@@ -104,9 +103,14 @@ impl Ingredient {
                     };
                 }
 
+                let mut num_available = None;
+                for captures in NUM_AVAILABLE_RE.captures_iter(&line) {
+                    num_available = Some(captures[1].parse::<usize>().unwrap());
+                }
+
                 (
                     Ingredient {
-                        name: NAME_RE.captures_iter(&line).next().unwrap()[1].to_owned(),
+                        name: NAME_RE.captures_iter(&line).next().unwrap()[2].to_owned(),
                         a,
                         b,
                         c,
@@ -121,9 +125,8 @@ impl Ingredient {
                         price: PRICE_RE.captures_iter(&line).next().unwrap()[1]
                             .parse::<usize>()
                             .unwrap(),
-                        num_available: None,
                     },
-                    None,
+                    num_available,
                 )
             })
             .collect()
