@@ -2,6 +2,7 @@ mod utils;
 
 use ::regex;
 use ::regex::Regex;
+use clap::Parser;
 use lazy_static::lazy_static;
 
 lazy_static! {
@@ -364,7 +365,15 @@ pub fn print(
     );
 }
 
+#[derive(Debug, Parser)]
+pub struct Args {
+    #[arg(short, long, value_name="ingredients.txt", default_value_t=("ingredients.rs".to_owned()))]
+    ingredients: String,
+}
+
 pub fn main() {
+    let args = Args::parse();
+
     let mut acc = Vec::new();
     let mut candidate_recipe = Vec::new();
     let target = IngredientRatio {
@@ -386,7 +395,7 @@ pub fn main() {
         price: 200,
     };
 
-    let mut ingredients = Ingredient::load("ingredients.rs");
+    let mut ingredients = Ingredient::load(&args.ingredients);
     let old_len = ingredients.len();
     ingredients.retain(|(i, _)| target.is_possible_ingredient(i));
     ingredients.sort();
