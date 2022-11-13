@@ -247,14 +247,16 @@ impl IngredientRatio {
     }
 }
 
-pub fn solve<'a>(
+pub fn solve<'a, F>(
     ingredient_pool: &'a [(Ingredient, Option<usize>)],
     mut num_available: Option<usize>,
     candidate_recipe: &mut Vec<&'a str>,
     candidate_ratio: &IngredientRatio,
     target_ratio: &IngredientRatio,
-    acc: &mut Vec<(Vec<&'a str>, IngredientRatio)>,
-) {
+    cb: &mut F,
+) where
+    F: FnMut(Vec<&'a str>, IngredientRatio),
+{
     if (target_ratio.price > 0 && candidate_ratio.price > target_ratio.price)
         || candidate_ratio.count > target_ratio.count
         || candidate_ratio.max > target_ratio.max
@@ -274,15 +276,7 @@ pub fn solve<'a>(
             && candidate_ratio.max >= target_ratio.min
             && candidate_ratio.senses_satisfied(target_ratio)
         {
-            print(
-                "++ ",
-                candidate_ratio.count,
-                candidate_ratio.max,
-                candidate_ratio.sense_score(),
-                candidate_ratio.price,
-                &candidate_recipe,
-            );
-            acc.push((candidate_recipe.to_owned(), candidate_ratio.clone()));
+            cb(candidate_recipe.to_owned(), candidate_ratio.clone());
         }
         return;
     }
@@ -294,9 +288,8 @@ pub fn solve<'a>(
         candidate_recipe,
         candidate_ratio,
         target_ratio,
-        acc,
+        cb,
     );
-
 
     // ...or we try adding the current ingredient, with the potential to add more copies of it
     let (i, c) = &ingredient_pool[0];
@@ -304,8 +297,10 @@ pub fn solve<'a>(
         num_available = *c;
     }
     num_available = match num_available {
-        Some(0) => { return; }
-        Some(x) => Some(x-1),
+        Some(0) => {
+            return;
+        }
+        Some(x) => Some(x - 1),
         None => None,
     };
     let new_ratio = IngredientRatio {
@@ -331,7 +326,7 @@ pub fn solve<'a>(
         candidate_recipe,
         &new_ratio,
         target_ratio,
-        acc,
+        cb,
     );
     candidate_recipe.pop();
 }
@@ -408,7 +403,17 @@ pub fn main() {
         &mut candidate_recipe,
         &IngredientRatio::default(),
         &target,
-        &mut acc,
+        &mut |candidate_recipe, candidate_ratio| {
+            print(
+                "++ ",
+                candidate_ratio.count,
+                candidate_ratio.max,
+                candidate_ratio.sense_score(),
+                candidate_ratio.price,
+                &candidate_recipe,
+            );
+            acc.push((candidate_recipe, candidate_ratio));
+        },
     );
     acc.sort_by_key(|(_, ratio)| ratio.clone());
     for (names, ratio) in acc.into_iter() {
