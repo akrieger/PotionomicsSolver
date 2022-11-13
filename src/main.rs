@@ -2,7 +2,7 @@ mod utils;
 
 use ::regex;
 use ::regex::Regex;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use lazy_static::lazy_static;
 use std::ops;
 
@@ -423,10 +423,18 @@ pub fn print(
     );
 }
 
+#[derive(Clone, Debug, ValueEnum)]
+pub enum SolveAlgorithm {
+    EXACT,
+}
+
 #[derive(Debug, Parser)]
 pub struct Args {
     #[arg(short, long, value_name="ingredients.txt", default_value_t=("ingredients.rs".to_owned()))]
     ingredients: String,
+
+    #[arg(short, long, value_enum, value_name="mode", default_value_t=SolveAlgorithm::EXACT)]
+    mode: SolveAlgorithm,
 }
 
 pub fn main() {
@@ -472,16 +480,19 @@ pub fn main() {
         &mut candidate_recipe,
         &IngredientRatio::default(),
         &target,
-        &mut |candidate_recipe, candidate_ratio| {
-            print(
-                "++ ",
-                candidate_ratio.count,
-                candidate_ratio.max,
-                candidate_ratio.sense_score(),
-                candidate_ratio.price,
-                &candidate_recipe,
-            );
-            acc.push((candidate_recipe, candidate_ratio));
+        &mut |candidate_recipe, candidate_ratio| match args.mode {
+            SolveAlgorithm::EXACT => {
+                print(
+                    "++ ",
+                    candidate_ratio.count,
+                    candidate_ratio.max,
+                    candidate_ratio.sense_score(),
+                    candidate_ratio.price,
+                    &candidate_recipe,
+                );
+                acc.push((candidate_recipe, candidate_ratio));
+            }
+            _ => (),
         },
     );
     acc.sort_by_key(|(_, ratio)| ratio.clone());
