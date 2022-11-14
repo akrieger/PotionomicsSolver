@@ -83,4 +83,26 @@ SpidersBaitDiamond b20 c20 $45
 FairyFlowerBloom a20 $32
 PhantomPomme b10 c30 +taste -sound $64
 MoteOfMana a15 b15 c15 d15 e15 $130
-MassGraveEnoki a56 b112 c112 d56 $10
+FairyFlowerBud a12 +smell $23
+CreepingMildew a16 e48 $92
+GeodeCitrus b16 e48 $47
+AcidRutabaga b48 -taste +sound $54
+AcidPitfallPlant a16 c40 e40 $145
+SilverDollop a25 b24 c24 d24 $138
+SepulcherWidow e48 -sight +sound $82
+Supernalite a48 b32 d16 -taste +sight $67
+HarpysSnare a24 b24 c24 e24 $75
+AvalanceCricket a24 b24 c32 d32 +taste -feel $140
+HarpysHeartOfStone a16 d32 +feel $76
+WeepingMetalOre b32 c64 -feel $132
+Rottermelon d64 -sight $136
+SilverStagAntler c64 -taste $36
+CragCrab e32 +smell $75
+Bioplasm b48 c32 d16 -sight +sound $125
+LazuliOre a64 b48 e32 -sound $174
+LustrousPearl d32 +sight $120
+PoisonQuartz a64 b48 d32 -sound $740
+StalkingSkeletonsFibula c40 d40 e16 $75
+DjinnBlossom a24 d8 +taste +smell $68
+ShallowGraveEnoki a32 b64 c64 d32 $200
+OwlBearPheromones e64 -smell $200
