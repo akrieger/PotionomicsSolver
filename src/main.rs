@@ -4,6 +4,7 @@ use ::regex;
 use ::regex::Regex;
 use clap::Parser;
 use lazy_static::lazy_static;
+use std::ops;
 
 lazy_static! {
     static ref NAME_RE: Regex = regex!(r"(^|\s)([a-zA-Z]+)\s");
@@ -13,15 +14,84 @@ lazy_static! {
     static ref NUM_AVAILABLE_RE: Regex = regex!(r"x(\d+)");
 }
 
-#[derive(Debug, Eq, Ord)]
-pub struct Ingredient {
-    name: String,
-
+#[derive(Default, Clone, Debug, Eq, Ord)]
+pub struct Magimins {
     a: usize,
     b: usize,
     c: usize,
     d: usize,
     e: usize,
+}
+
+impl Magimins {
+    pub fn total(&self) -> usize {
+        self.a + self.b + self.c + self.d + self.e
+    }
+
+    pub fn new(a: usize, b: usize, c: usize, d: usize, e: usize) -> Magimins {
+        Magimins { a, b, c, d, e }
+    }
+
+    pub fn as_array(&self) -> [usize; 5] {
+        [self.a, self.b, self.c, self.d, self.e]
+    }
+}
+
+impl ops::Add<&Magimins> for &Magimins {
+    type Output = Magimins;
+
+    fn add(self, rhs: &Magimins) -> Magimins {
+        Magimins::new(
+            self.a + rhs.a,
+            self.b + rhs.b,
+            self.c + rhs.c,
+            self.d + rhs.d,
+            self.e + rhs.e,
+        )
+    }
+}
+
+impl ops::Div<&Magimins> for usize {
+    type Output = Magimins;
+
+    fn div(self, rhs: &Magimins) -> Magimins {
+        let total = rhs.total();
+        if total == 0 {
+            return Magimins::new(0, 0, 0, 0, 0);
+        }
+        return Magimins::new(
+            self * rhs.a / total,
+            self * rhs.b / total,
+            self * rhs.c / total,
+            self * rhs.d / total,
+            self * rhs.e / total,
+        );
+    }
+}
+
+impl PartialEq for Magimins {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.a == other.a
+            && self.b == other.b
+            && self.c == other.c
+            && self.d == other.d
+            && self.e == other.e
+    }
+}
+
+impl PartialOrd for Magimins {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.total().partial_cmp(&other.total())
+    }
+}
+
+#[derive(Debug, Eq, Ord)]
+pub struct Ingredient {
+    name: String,
+
+    magimins: Magimins,
 
     mutamin: usize,
 
@@ -112,11 +182,7 @@ impl Ingredient {
                 (
                     Ingredient {
                         name: NAME_RE.captures_iter(&line).next().unwrap()[2].to_owned(),
-                        a,
-                        b,
-                        c,
-                        d,
-                        e,
+                        magimins: Magimins::new(a, b, c, d, e),
                         mutamin: a + b + c + d + e,
                         taste,
                         feel,
@@ -136,11 +202,7 @@ impl Ingredient {
 
 #[derive(Default, Debug, Clone, Eq, Ord)]
 pub struct IngredientRatio {
-    a: usize,
-    b: usize,
-    c: usize,
-    d: usize,
-    e: usize,
+    magimins: Magimins,
     taste: isize,
     feel: isize,
     sight: isize,
@@ -204,8 +266,8 @@ impl IngredientRatio {
     }
 
     fn is_possible_ingredient(&self, i: &Ingredient) -> bool {
-        let tm = [self.a, self.b, self.c, self.d, self.e];
-        let im = [i.a, i.b, i.c, i.d, i.e];
+        let tm = self.magimins.as_array();
+        let im = i.magimins.as_array();
         for i in 0..tm.len() {
             if im[i] > 0 && tm[i] == 0 {
                 return false;
@@ -218,8 +280,8 @@ impl IngredientRatio {
         if self.count == 0 {
             return Some(0);
         }
-        let sm = [self.a, self.b, self.c, self.d, self.e];
-        let tm = [target.a, target.b, target.c, target.d, target.e];
+        let sm = self.magimins.as_array();
+        let tm = target.magimins.as_array();
         let mut target_ratio = 0;
         let mut mismatch = false;
         for i in 0..sm.len() {
@@ -305,11 +367,7 @@ pub fn solve<'a, F>(
         None => None,
     };
     let new_ratio = IngredientRatio {
-        a: candidate_ratio.a + i.a,
-        b: candidate_ratio.b + i.b,
-        c: candidate_ratio.c + i.c,
-        d: candidate_ratio.d + i.d,
-        e: candidate_ratio.e + i.e,
+        magimins: &candidate_ratio.magimins + &i.magimins,
         taste: candidate_ratio.taste + i.taste,
         feel: candidate_ratio.feel + i.feel,
         sight: candidate_ratio.sight + i.sight,
@@ -377,11 +435,13 @@ pub fn main() {
     let mut acc = Vec::new();
     let mut candidate_recipe = Vec::new();
     let target = IngredientRatio {
-        a: 0,
-        b: 3,
-        c: 4,
-        d: 3,
-        e: 0,
+        magimins: Magimins {
+            a: 3,
+            b: 4,
+            c: 3,
+            d: 0,
+            e: 0,
+        },
 
         taste: 0,
         feel: 0,
