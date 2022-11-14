@@ -83,3 +83,4 @@ SpidersBaitDiamond b20 c20 $45
 FairyFlowerBloom a20 $32
 PhantomPomme b10 c30 +taste -sound $64
 MoteOfMana a15 b15 c15 d15 e15 $130
+MassGraveEnoki a56 b112 c112 d56 $10

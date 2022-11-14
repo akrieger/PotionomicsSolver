@@ -4,6 +4,7 @@ use ::regex;
 use ::regex::Regex;
 use clap::{Parser, ValueEnum};
 use lazy_static::lazy_static;
+use std::fmt;
 use std::ops;
 
 lazy_static! {
@@ -34,6 +35,16 @@ impl Magimins {
 
     pub fn as_array(&self) -> [usize; 5] {
         [self.a, self.b, self.c, self.d, self.e]
+    }
+}
+
+impl fmt::Display for Magimins {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "a:{}, b:{}, c:{}, d:{}, e:{}",
+            self.a, self.b, self.c, self.d, self.e
+        )
     }
 }
 
@@ -310,6 +321,22 @@ impl IngredientRatio {
     }
 }
 
+pub fn rms(expected: [usize; 5], expected_total: usize, actual: [usize; 5]) -> f64 {
+    let mut sum_squares: f64 = 0.0;
+    let mut actual_total: usize = 0;
+    for i in 0..expected.len() {
+        let diff = expected[i].abs_diff(actual[i]) as u32;
+        if diff > 0 {
+            sum_squares += diff.pow(2) as f64;
+        }
+        actual_total += actual[i];
+    }
+    if expected_total != actual_total {
+        sum_squares += (expected_total.abs_diff(actual_total)).pow(2) as f64;
+    }
+    return sum_squares.sqrt();
+}
+
 pub fn solve<'a, F>(
     ingredient_pool: &'a [(Ingredient, Option<usize>)],
     mut num_available: Option<usize>,
@@ -326,18 +353,19 @@ pub fn solve<'a, F>(
     {
         return;
     }
-
+    /*
     let curr_scale = match candidate_ratio.satisfying_ratio(target_ratio) {
         None => {
             return;
         }
         Some(s) => s,
-    };
+    }; */
 
     if ingredient_pool.len() == 0 {
-        if curr_scale > 0
-            && candidate_ratio.max >= target_ratio.min
-            && candidate_ratio.senses_satisfied(target_ratio)
+        if
+        /*curr_scale > 0
+        && */
+        candidate_ratio.max >= target_ratio.min && candidate_ratio.senses_satisfied(target_ratio)
         {
             cb(candidate_recipe.to_owned(), candidate_ratio.clone());
         }
@@ -426,6 +454,7 @@ pub fn print(
 #[derive(Clone, Debug, ValueEnum)]
 pub enum SolveAlgorithm {
     EXACT,
+    APPROXIMATE,
 }
 
 #[derive(Debug, Parser)]
@@ -448,7 +477,7 @@ pub fn main() {
             b: 4,
             c: 3,
             d: 0,
-            e: 0,
+            e: 1,
         },
 
         taste: 0,
@@ -459,13 +488,16 @@ pub fn main() {
 
         count: 8,
         min: 200,
-        max: 200,
+        max: 475,
         price: 200,
     };
 
     let mut ingredients = Ingredient::load(&args.ingredients);
     let old_len = ingredients.len();
-    ingredients.retain(|(i, _)| target.is_possible_ingredient(i));
+    ingredients.retain(|(i, _)| match args.mode {
+        SolveAlgorithm::EXACT => target.is_possible_ingredient(i),
+        SolveAlgorithm::APPROXIMATE => true,
+    });
     ingredients.sort();
 
     println!(
@@ -473,6 +505,8 @@ pub fn main() {
         old_len,
         ingredients.len()
     );
+
+    let scaled_expected_ratio = target.max / &target.magimins;
 
     solve(
         &ingredients.as_slice(),
@@ -492,7 +526,37 @@ pub fn main() {
                 );
                 acc.push((candidate_recipe, candidate_ratio));
             }
-            _ => (),
+            SolveAlgorithm::APPROXIMATE => {
+                if acc.len() == 0 {
+                    acc.push((candidate_recipe, candidate_ratio));
+                    return;
+                }
+                let current = &acc.last().unwrap().1;
+
+                let current_rms = rms(
+                    scaled_expected_ratio.as_array(),
+                    target.max,
+                    current.magimins.as_array(),
+                );
+                let new_rms = rms(
+                    scaled_expected_ratio.as_array(),
+                    target.max,
+                    candidate_ratio.magimins.as_array(),
+                );
+                println!(
+                    "total: {}, {}",
+                    candidate_ratio.magimins.total(),
+                    candidate_ratio.magimins,
+                );
+                if new_rms < current_rms {
+                    println!(
+                        "total: {}, {}",
+                        candidate_ratio.magimins.total(),
+                        candidate_ratio.magimins,
+                    );
+                    acc.push((candidate_recipe, candidate_ratio));
+                }
+            }
         },
     );
     acc.sort_by_key(|(_, ratio)| ratio.clone());
