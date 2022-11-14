@@ -106,3 +106,8 @@ StalkingSkeletonsFibula c40 d40 e16 $75
 DjinnBlossom a24 d8 +taste +smell $68
 ShallowGraveEnoki a32 b64 c64 d32 $200
 OwlBearPheromones e64 -smell $200
+ChimeraWaste c64 d32 -smell $59
+BouyantBlowfish a96 c48 -sight -sound $138
+FeatheredGelatin d48 +feel -smell $62
+MedusaSpore b48 d16 -taste +smell $47
+WatchdogDaisy b16 d48 $83
