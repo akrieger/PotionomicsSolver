@@ -473,11 +473,11 @@ pub fn main() {
     let mut candidate_recipe = Vec::new();
     let target = IngredientRatio {
         magimins: Magimins {
-            a: 3,
-            b: 4,
-            c: 3,
-            d: 0,
-            e: 1,
+            a: 0,
+            b: 3,
+            c: 4,
+            d: 3,
+            e: 0,
         },
 
         taste: 0,
@@ -486,10 +486,10 @@ pub fn main() {
         smell: 0,
         sound: 0,
 
-        count: 8,
-        min: 200,
-        max: 475,
-        price: 200,
+        count: 9,
+        min: 400,
+        max: 480,
+        price: 0,
     };
 
     let mut ingredients = Ingredient::load(&args.ingredients);
@@ -531,7 +531,9 @@ pub fn main() {
                     acc.push((candidate_recipe, candidate_ratio));
                     return;
                 }
-                let current = &acc.last().unwrap().1;
+                let current_best = acc.last().unwrap();
+                let current_best_recipe = &current_best.0;
+                let current = &current_best.1;
 
                 let current_rms = rms(
                     scaled_expected_ratio.as_array(),
@@ -543,16 +545,23 @@ pub fn main() {
                     target.max,
                     candidate_ratio.magimins.as_array(),
                 );
-                println!(
-                    "total: {}, {}",
-                    candidate_ratio.magimins.total(),
-                    candidate_ratio.magimins,
-                );
-                if new_rms < current_rms {
+                if current_best_recipe.len() < candidate_recipe.len()
+                    || (current_best_recipe.len() == candidate_recipe.len()
+                        && new_rms < current_rms)
+                {
                     println!(
-                        "total: {}, {}",
+                        "total: {}, {}, error: {}",
                         candidate_ratio.magimins.total(),
                         candidate_ratio.magimins,
+                        new_rms,
+                    );
+                    print(
+                        "",
+                        candidate_ratio.count,
+                        candidate_ratio.max,
+                        candidate_ratio.sense_score(),
+                        candidate_ratio.price,
+                        &candidate_recipe,
                     );
                     acc.push((candidate_recipe, candidate_ratio));
                 }
