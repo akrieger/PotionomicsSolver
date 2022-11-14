@@ -457,6 +457,47 @@ pub enum SolveAlgorithm {
     APPROXIMATE,
 }
 
+#[derive(Clone, Debug, ValueEnum)]
+pub enum Recipe {
+    HEALTH, MANA, STAMINA, SPEED,
+    fire, ICE, LIGHTNING, SHADOW,
+    ALERT, SIGHT, INSIGHT, DOWSING,
+    POISON, DROWSY, PETRI, SILENCE,
+}
+
+impl Recipe {
+    pub fn to_magimins(&self) -> Magimins {
+        let mut a = 0;
+        let mut b = 0;
+        let mut c = 0;
+        let mut d = 0;
+        let mut e = 0;
+
+        match self {
+            Recipe::HEALTH => { a = 1; b = 1;}
+            Recipe::MANA => { b = 1; c = 1; }
+            Recipe::STAMINA => { a = 1; e = 1; }
+            Recipe::SPEED => { c = 1; d = 1; }
+            Recipe::fire => { a = 1; c = 1; }
+            Recipe::ICE => { a = 1; d = 1; }
+            Recipe::LIGHTNING => { b = 1; d = 1; }
+            Recipe::SHADOW => { b = 1; e = 1; }
+            Recipe::ALERT => { b = 3; c = 4; d = 3; }
+            Recipe::SIGHT => { a = 3; b = 4; c = 3; }
+            Recipe::INSIGHT => { a = 4; b = 3; e = 3; }
+            Recipe::DOWSING => { a = 3; d = 3; e = 4; }
+            Recipe::POISON => { a = 2; c = 1; d = 1; }
+            Recipe::DROWSY => { a = 1; b = 1; d = 2; }
+            Recipe::PETRI => { a = 1; c = 2; d = 1; }
+            Recipe::SILENCE => { b = 2; c = 1; e = 1; }
+        }
+
+        Magimins {
+            a, b, c, d, e
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 pub struct Args {
     #[arg(short, long, value_name="ingredients.txt", default_value_t=("ingredients.rs".to_owned()))]
@@ -464,6 +505,9 @@ pub struct Args {
 
     #[arg(short, long, value_enum, value_name="mode", default_value_t=SolveAlgorithm::EXACT)]
     mode: SolveAlgorithm,
+
+    #[arg(short, long, value_enum, value_name="recipe", default_value_t=Recipe::HEALTH)]
+    recipe: Recipe,
 }
 
 pub fn main() {
@@ -472,13 +516,7 @@ pub fn main() {
     let mut acc = Vec::new();
     let mut candidate_recipe = Vec::new();
     let target = IngredientRatio {
-        magimins: Magimins {
-            a: 0,
-            b: 3,
-            c: 4,
-            d: 3,
-            e: 0,
-        },
+        magimins: args.recipe.to_magimins(),
 
         taste: 0,
         feel: 0,
@@ -488,7 +526,7 @@ pub fn main() {
 
         count: 9,
         min: 400,
-        max: 480,
+        max: 460,
         price: 0,
     };
 
