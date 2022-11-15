@@ -353,21 +353,15 @@ pub fn solve<'a, F>(
     {
         return;
     }
-    /*
-    let curr_scale = match candidate_ratio.satisfying_ratio(target_ratio) {
-        None => {
-            return;
-        }
-        Some(s) => s,
-    }; */
 
     if ingredient_pool.len() == 0 {
-        if
-        /*curr_scale > 0
-        && */
-        candidate_ratio.max >= target_ratio.min && candidate_ratio.senses_satisfied(target_ratio)
+        if candidate_ratio.max >= target_ratio.min && candidate_ratio.senses_satisfied(target_ratio)
         {
-            cb(candidate_recipe.to_owned(), candidate_ratio.clone(), target_ratio.clone());
+            cb(
+                candidate_recipe.to_owned(),
+                candidate_ratio.clone(),
+                target_ratio.clone(),
+            );
         }
         return;
     }
@@ -459,10 +453,22 @@ pub enum SolveAlgorithm {
 
 #[derive(Clone, Debug, ValueEnum)]
 pub enum Recipe {
-    HEALTH, MANA, STAMINA, SPEED,
-    FIRE, ICE, LIGHTNING, SHADOW,
-    ALERT, SIGHT, INSIGHT, DOWSING,
-    POISON, DROWSY, PETRI, SILENCE,
+    HEALTH,
+    MANA,
+    STAMINA,
+    SPEED,
+    FIRE,
+    ICE,
+    LIGHTNING,
+    SHADOW,
+    ALERT,
+    SIGHT,
+    INSIGHT,
+    DOWSING,
+    POISON,
+    DROWSY,
+    PETRI,
+    SILENCE,
 }
 
 impl Recipe {
@@ -474,27 +480,81 @@ impl Recipe {
         let mut e = 0;
 
         match self {
-            Recipe::HEALTH => { a = 1; b = 1;}
-            Recipe::MANA => { b = 1; c = 1; }
-            Recipe::STAMINA => { a = 1; e = 1; }
-            Recipe::SPEED => { c = 1; d = 1; }
-            Recipe::FIRE => { a = 1; c = 1; }
-            Recipe::ICE => { a = 1; d = 1; }
-            Recipe::LIGHTNING => { b = 1; d = 1; }
-            Recipe::SHADOW => { b = 1; e = 1; }
-            Recipe::ALERT => { b = 3; c = 4; d = 3; }
-            Recipe::SIGHT => { a = 3; b = 4; c = 3; }
-            Recipe::INSIGHT => { a = 4; b = 3; e = 3; }
-            Recipe::DOWSING => { a = 3; d = 3; e = 4; }
-            Recipe::POISON => { a = 2; c = 1; d = 1; }
-            Recipe::DROWSY => { a = 1; b = 1; d = 2; }
-            Recipe::PETRI => { a = 1; c = 2; d = 1; }
-            Recipe::SILENCE => { b = 2; c = 1; e = 1; }
+            Recipe::HEALTH => {
+                a = 1;
+                b = 1;
+            }
+            Recipe::MANA => {
+                b = 1;
+                c = 1;
+            }
+            Recipe::STAMINA => {
+                a = 1;
+                e = 1;
+            }
+            Recipe::SPEED => {
+                c = 1;
+                d = 1;
+            }
+            Recipe::FIRE => {
+                a = 1;
+                c = 1;
+            }
+            Recipe::ICE => {
+                a = 1;
+                d = 1;
+            }
+            Recipe::LIGHTNING => {
+                b = 1;
+                d = 1;
+            }
+            Recipe::SHADOW => {
+                b = 1;
+                e = 1;
+            }
+            Recipe::ALERT => {
+                b = 3;
+                c = 4;
+                d = 3;
+            }
+            Recipe::SIGHT => {
+                a = 3;
+                b = 4;
+                c = 3;
+            }
+            Recipe::INSIGHT => {
+                a = 4;
+                b = 3;
+                e = 3;
+            }
+            Recipe::DOWSING => {
+                a = 3;
+                d = 3;
+                e = 4;
+            }
+            Recipe::POISON => {
+                a = 2;
+                c = 1;
+                d = 1;
+            }
+            Recipe::DROWSY => {
+                a = 1;
+                b = 1;
+                d = 2;
+            }
+            Recipe::PETRI => {
+                a = 1;
+                c = 2;
+                d = 1;
+            }
+            Recipe::SILENCE => {
+                b = 2;
+                c = 1;
+                e = 1;
+            }
         }
 
-        Magimins {
-            a, b, c, d, e
-        }
+        Magimins { a, b, c, d, e }
     }
 }
 
@@ -555,8 +615,12 @@ pub fn main() {
         &mut |candidate_recipe, candidate_ratio, target_ratio| match args.mode {
             SolveAlgorithm::EXACT => {
                 match candidate_ratio.satisfying_ratio(&target_ratio) {
-                    None => { return; }
-                    Some(0) => { return; }
+                    None => {
+                        return;
+                    }
+                    Some(0) => {
+                        return;
+                    }
                     Some(s) => {}
                 };
                 print(
