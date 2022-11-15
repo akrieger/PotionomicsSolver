@@ -345,7 +345,7 @@ pub fn solve<'a, F>(
     target_ratio: &IngredientRatio,
     cb: &mut F,
 ) where
-    F: FnMut(Vec<&'a str>, IngredientRatio),
+    F: FnMut(Vec<&'a str>, IngredientRatio, IngredientRatio),
 {
     if (target_ratio.price > 0 && candidate_ratio.price > target_ratio.price)
         || candidate_ratio.count > target_ratio.count
@@ -367,7 +367,7 @@ pub fn solve<'a, F>(
         && */
         candidate_ratio.max >= target_ratio.min && candidate_ratio.senses_satisfied(target_ratio)
         {
-            cb(candidate_recipe.to_owned(), candidate_ratio.clone());
+            cb(candidate_recipe.to_owned(), candidate_ratio.clone(), target_ratio.clone());
         }
         return;
     }
@@ -460,7 +460,7 @@ pub enum SolveAlgorithm {
 #[derive(Clone, Debug, ValueEnum)]
 pub enum Recipe {
     HEALTH, MANA, STAMINA, SPEED,
-    fire, ICE, LIGHTNING, SHADOW,
+    FIRE, ICE, LIGHTNING, SHADOW,
     ALERT, SIGHT, INSIGHT, DOWSING,
     POISON, DROWSY, PETRI, SILENCE,
 }
@@ -478,7 +478,7 @@ impl Recipe {
             Recipe::MANA => { b = 1; c = 1; }
             Recipe::STAMINA => { a = 1; e = 1; }
             Recipe::SPEED => { c = 1; d = 1; }
-            Recipe::fire => { a = 1; c = 1; }
+            Recipe::FIRE => { a = 1; c = 1; }
             Recipe::ICE => { a = 1; d = 1; }
             Recipe::LIGHTNING => { b = 1; d = 1; }
             Recipe::SHADOW => { b = 1; e = 1; }
@@ -524,9 +524,9 @@ pub fn main() {
         smell: 0,
         sound: 0,
 
-        count: 9,
-        min: 400,
-        max: 460,
+        count: 10,
+        min: 550,
+        max: 575,
         price: 0,
     };
 
@@ -552,8 +552,13 @@ pub fn main() {
         &mut candidate_recipe,
         &IngredientRatio::default(),
         &target,
-        &mut |candidate_recipe, candidate_ratio| match args.mode {
+        &mut |candidate_recipe, candidate_ratio, target_ratio| match args.mode {
             SolveAlgorithm::EXACT => {
+                match candidate_ratio.satisfying_ratio(&target_ratio) {
+                    None => { return; }
+                    Some(0) => { return; }
+                    Some(s) => {}
+                };
                 print(
                     "++ ",
                     candidate_ratio.count,
