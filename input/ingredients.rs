@@ -98,16 +98,26 @@ WeepingMetalOre b32 c64 -feel $132
 Rottermelon d64 -sight $136
 SilverStagAntler c64 -taste $36
 CragCrab e32 +smell $75
-Bioplasm b48 c32 d16 -sight +sound $125
+// Bioplasm b48 c32 d16 -sight +sound $125
 LazuliOre a64 b48 e32 -sound $174
 LustrousPearl d32 +sight $120
-PoisonQuartz a64 b48 d32 -sound $740
-StalkingSkeletonsFibula c40 d40 e16 $75
+// PoisonQuartz a64 b48 d32 -sound $740
+// StalkingSkeletonsFibula c40 d40 e16 $75
 DjinnBlossom a24 d8 +taste +smell $68
 ShallowGraveEnoki a32 b64 c64 d32 $200
-OwlBearPheromones e64 -smell $200
-ChimeraWaste c64 d32 -smell $59
-BouyantBlowfish a96 c48 -sight -sound $138
-FeatheredGelatin d48 +feel -smell $62
-MedusaSpore b48 d16 -taste +smell $47
-WatchdogDaisy b16 d48 $83
+// OwlBearPheromones e64 -smell $200
+// ChimeraWaste c64 d32 -smell $59
+// BouyantBlowfish a96 c48 -sight -sound $138
+// FeatheredGelatin d48 +feel -smell $62
+// MedusaSpore b48 d16 -taste +smell $47
+// WatchdogDaisy b16 d48 $83
+PhoenixTear b24 c24 d8 +feel $41
+SequinedCustard c32 e16 +sight $84
+EmberOfMana a24 b24 c24 d24 e24 $330
+DeliriumShroom c48 +taste -sound $32
+EyeOfNewt b16 +taste +feel $34
+DaredevilPepper b32 d32 $45
+LamiasShedScales d48 e16 $220
+Bioplasm b48 c32 d16 -sight +sound $125
+HangmanEel a24 b24 c24 $190
+
