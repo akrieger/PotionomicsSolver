@@ -125,9 +125,10 @@ impl PartialEq for Ingredient {
 impl PartialOrd for Ingredient {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        let cmp = self.mutamin.partial_cmp(&other.mutamin);
+        // Inverse sort.
+        let cmp = other.mutamin.partial_cmp(&self.mutamin);
         if cmp == Some(std::cmp::Ordering::Equal) {
-            self.sense_score().partial_cmp(&other.sense_score())
+            other.sense_score().partial_cmp(&self.sense_score())
         } else {
             cmp
         }
@@ -208,6 +209,175 @@ impl Ingredient {
                 )
             })
             .collect()
+    }
+}
+
+#[derive(Default, Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct PotionAttributes {
+    magimins: Magimins,
+    taste: isize,
+    feel: isize,
+    sight: isize,
+    smell: isize,
+    sound: isize,
+}
+
+impl PotionAttributes {
+    fn satisfying_ratio(&self, target: &IngredientRatio) -> Option<usize> {
+        if self.magimins.total() == 0 {
+            return Some(0);
+        }
+        let sm = self.magimins.as_array();
+        let tm = target.magimins.as_array();
+        let mut target_ratio = 0;
+        let mut mismatch = false;
+        for i in 0..sm.len() {
+            if sm[i] == 0 && tm[i] == 0 {
+                continue;
+            }
+
+            if sm[i] != 0 && tm[i] == 0 {
+                return None;
+            }
+
+            if mismatch {
+                continue;
+            }
+
+            mismatch |= sm[i] == 0 && tm[i] != 0 || sm[i] % tm[i] > 0;
+
+            if target_ratio == 0 {
+                target_ratio = sm[i] / tm[i];
+            } else {
+                mismatch |= sm[i] / tm[i] != target_ratio;
+            }
+        }
+
+        Some(if mismatch { 0 } else { target_ratio })
+    }
+}
+
+impl ops::Add<&Ingredient> for &PotionAttributes {
+    type Output = PotionAttributes;
+
+    fn add(self, rhs: &Ingredient) -> PotionAttributes {
+        PotionAttributes {
+            magimins: &self.magimins + &rhs.magimins,
+            taste: self.taste + rhs.taste,
+            feel: self.feel + rhs.feel,
+            sight: self.sight + rhs.sight,
+            smell: self.smell + rhs.smell,
+            sound: self.sound + rhs.sound,
+        }
+    }
+}
+
+impl PotionAttributes {
+    fn clamp_sense(s: isize) -> isize {
+        if s < 0 {
+            -1
+        } else if s > 0 {
+            1
+        } else {
+            0
+        }
+    }
+
+    pub fn sense_score(&self) -> isize {
+        PotionAttributes::clamp_sense(self.taste)
+            + PotionAttributes::clamp_sense(self.feel)
+            + PotionAttributes::clamp_sense(self.sight)
+            + PotionAttributes::clamp_sense(self.smell)
+            + PotionAttributes::clamp_sense(self.sound)
+    }
+
+    pub fn tier(&self) -> &'static str {
+        let total = self.magimins.total();
+        if total < 60 {
+            return "Minor";
+        }
+        if total < 150 {
+            return "Common";
+        }
+        if total < 290 {
+            return "Greater";
+        }
+        if total < 470 {
+            return "Grand";
+        }
+        if total < 720 {
+            return "Superior";
+        }
+        return "Masterwork";
+    }
+}
+
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
+pub struct PotionRecipe<'a, 'b>
+where
+    'a: 'b,
+{
+    attributes: PotionAttributes,
+    ingredients: &'b [&'a Ingredient],
+    cost: usize,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct TargetRecipe {
+    // attributes.magimins is the ideal recipe ratio
+    attributes: PotionAttributes,
+    min_magimins: usize,
+    max_magimins: usize,
+}
+
+/**
+ * Enumerates all recipes using at least one of the first ingredient
+ * of a given ingredient pool for the all the potential inputs,
+ * up to some maximum number of ingredients,
+ * ideally targeting a specific ratio,
+ * with a callback indicating whether to early abort a given recipe,
+ * and a callback to accept a recipe that passes validation.
+ */
+pub fn enumerate<'a, EarlyExitCb, SendRecipeCb>(
+    ingredient_pool: &'a [(Ingredient, Option<usize>)],
+    max_ingredients: usize,
+    // Recipe so far. Must not change any existing values. Can append new values.
+    current_ingredients: &mut Vec<&'a Ingredient>,
+    mut current_ratio: PotionAttributes,
+    exit_cb: &mut EarlyExitCb,
+    cb: &mut SendRecipeCb,
+) where
+    EarlyExitCb: FnMut(&[&'a Ingredient], &PotionAttributes) -> bool,
+    SendRecipeCb: FnMut(&[&'a Ingredient], &PotionAttributes),
+{
+    assert!(ingredient_pool.len() > 0);
+    let max_current_ingredient = (max_ingredients - current_ingredients.len())
+        .min(ingredient_pool[0].1.unwrap_or(max_ingredients));
+    assert!(max_current_ingredient > 0);
+    for i in 1..=max_current_ingredient {
+        current_ingredients.push(&ingredient_pool[0].0);
+        current_ratio = &current_ratio + &ingredient_pool[0].0;
+        if exit_cb(current_ingredients.as_slice(), &current_ratio) {
+            return;
+        }
+        cb(current_ingredients.as_slice(), &current_ratio);
+        if current_ingredients.len() >= max_ingredients {
+            return;
+        }
+
+        let current_ingredients_len = current_ingredients.len();
+        for j in 1..(ingredient_pool.len() - 1) {
+            // Recurse starting from the smallest ingredients to skip coarse prefixes.
+            enumerate(
+                &ingredient_pool[ingredient_pool.len() - j..],
+                max_ingredients,
+                current_ingredients,
+                current_ratio.clone(),
+                exit_cb,
+                cb,
+            );
+            current_ingredients.truncate(current_ingredients_len);
+        }
     }
 }
 
@@ -418,7 +588,7 @@ pub fn print(
     magimins: usize,
     sense: isize,
     price: usize,
-    ingredients: &Vec<&str>,
+    ingredients: &[&Ingredient],
 ) {
     let mut c = 0;
     let mut curr_name = &ingredients[0];
@@ -427,12 +597,12 @@ pub fn print(
         if name == curr_name {
             c += 1;
         } else {
-            compact_names.push(format!("{}x {}", c, curr_name));
+            compact_names.push(format!("{}x {}", c, curr_name.name));
             curr_name = name;
             c = 1;
         }
     }
-    compact_names.push(format!("{}x {}", c, curr_name));
+    compact_names.push(format!("{}x {}", c, curr_name.name));
 
     println!(
         "{}{} ingredients, {} magimins, {} sense score, ${}\n\t{}",
@@ -570,11 +740,10 @@ pub struct Args {
     recipe: Recipe,
 }
 
-pub fn main() {
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
 
-    let mut acc = Vec::new();
-    let mut candidate_recipe = Vec::new();
     let target = IngredientRatio {
         magimins: args.recipe.to_magimins(),
 
@@ -585,7 +754,7 @@ pub fn main() {
         sound: 0,
 
         count: 10,
-        min: 550,
+        min: 290,
         max: 575,
         price: 0,
     };
@@ -597,6 +766,7 @@ pub fn main() {
         SolveAlgorithm::APPROXIMATE => true,
     });
     ingredients.sort();
+    let mut acc: Vec<(Vec<&Ingredient>, PotionAttributes)> = Vec::new();
 
     println!(
         "Found {} ingredients, only {} are candidates",
@@ -606,6 +776,106 @@ pub fn main() {
 
     let scaled_expected_ratio = target.max / &target.magimins;
 
+    for i in 0..ingredients.len() {
+        let mut ingredients_vec = Vec::new();
+        ingredients_vec.reserve_exact(target.max);
+        enumerate(
+            &ingredients[i..],
+            target.count,
+            &mut ingredients_vec,
+            PotionAttributes::default(),
+            &mut |candidate_ingredients: &[&Ingredient],
+                  candidate_ratio: &PotionAttributes|
+             -> bool {
+                assert!(candidate_ingredients.len() > 0);
+                if candidate_ratio.magimins.total() > target.max {
+                    return true;
+                }
+                let candidate_total = candidate_ratio.magimins.total();
+                let last_ingredient_magimins = candidate_ingredients.last().unwrap().mutamin;
+                let remaining_ingredients_count = target.count - candidate_ingredients.len();
+                if (candidate_total + (last_ingredient_magimins * remaining_ingredients_count))
+                    < target.min
+                {
+                    return false;
+                }
+                return false;
+            },
+            &mut |candidate_ingredients: &[&Ingredient], candidate_ratio| {
+                if candidate_ratio.magimins.total() < target.min {
+                    return;
+                }
+                match args.mode {
+                    SolveAlgorithm::EXACT => {
+                        match candidate_ratio.satisfying_ratio(&target) {
+                            None => {
+                                return;
+                            }
+                            Some(0) => {
+                                return;
+                            }
+                            Some(s) => {}
+                        };
+                        print(
+                            "++ ",
+                            candidate_ingredients.len(),
+                            candidate_ratio.magimins.total(),
+                            candidate_ratio.sense_score(),
+                            candidate_ingredients
+                                .iter()
+                                .fold(0, |p, ingredient| p + ingredient.price),
+                            candidate_ingredients,
+                        );
+                        acc.push((candidate_ingredients.to_vec(), candidate_ratio.clone()));
+                    }
+                    SolveAlgorithm::APPROXIMATE => {
+                        if acc.len() == 0 {
+                            acc.push((candidate_ingredients.to_vec(), candidate_ratio.clone()));
+                            return;
+                        }
+                        let current_best = acc.last().unwrap();
+                        let current_best_recipe = &current_best.0;
+                        let current = &current_best.1;
+
+                        let current_rms = rms(
+                            scaled_expected_ratio.as_array(),
+                            target.max,
+                            current.magimins.as_array(),
+                        );
+                        let new_rms = rms(
+                            scaled_expected_ratio.as_array(),
+                            target.max,
+                            candidate_ratio.magimins.as_array(),
+                        );
+                        if current_best_recipe.len() < candidate_ingredients.len()
+                            || (current_best_recipe.len() == candidate_ingredients.len()
+                                && new_rms < current_rms)
+                        {
+                            println!(
+                                "total: {}, {}, error: {}",
+                                candidate_ratio.magimins.total(),
+                                candidate_ratio.magimins,
+                                new_rms,
+                            );
+                            print(
+                                "++",
+                                candidate_ingredients.len(),
+                                candidate_ratio.magimins.total(),
+                                candidate_ratio.sense_score(),
+                                candidate_ingredients
+                                    .iter()
+                                    .fold(0, |p, ingredient| p + ingredient.price),
+                                candidate_ingredients,
+                            );
+                            acc.push((candidate_ingredients.to_vec(), candidate_ratio.clone()));
+                        }
+                    }
+                }
+            },
+        );
+        ingredients_vec.clear();
+    }
+    /*
     solve(
         &ingredients.as_slice(),
         None,
@@ -686,4 +956,5 @@ pub fn main() {
             &names,
         );
     }
+     */
 }
