@@ -350,7 +350,6 @@ pub struct TargetRecipe {
  * and a callback to accept a recipe that passes validation.
  */
 pub fn enumerate<'a, RecipeCb>(
-    mandatory_ingredient: &'a (Ingredient, Option<usize>),
     ingredient_pool: &'a [(Ingredient, Option<usize>)],
     max_ingredients: usize,
     // Recipe so far. Must not change any existing values. Can append new values.
@@ -360,6 +359,10 @@ pub fn enumerate<'a, RecipeCb>(
 ) where
     RecipeCb: FnMut(&[&'a Ingredient], &PotionAttributes) -> bool,
 {
+    if ingredient_pool.len() == 0 {
+        return;
+    }
+    let mandatory_ingredient = &ingredient_pool[0];
     let max_current_ingredient = (max_ingredients - current_ingredients.len())
         .min(mandatory_ingredient.1.unwrap_or(max_ingredients));
     assert!(max_current_ingredient > 0);
@@ -374,11 +377,10 @@ pub fn enumerate<'a, RecipeCb>(
         }
 
         let current_ingredients_len = current_ingredients.len();
-        for j in 1..ingredient_pool.len() {
+        for j in 0..ingredient_pool.len() {
             // Recurse starting from the smallest ingredients to skip coarse prefixes.
             enumerate(
-                &ingredient_pool[ingredient_pool.len() - j],
-                &ingredient_pool[ingredient_pool.len() - j + 1..],
+                &ingredient_pool[ingredient_pool.len() - j..],
                 max_ingredients,
                 current_ingredients,
                 current_ratio.clone(),
@@ -791,8 +793,7 @@ fn main() {
         ingredients_vec.reserve_exact(target.max);
         println!("starting from the top");
         enumerate(
-            &ingredients[i],
-            &ingredients[i + 1..],
+            &ingredients[i..],
             target.count,
             &mut ingredients_vec,
             PotionAttributes::default(),
@@ -803,17 +804,7 @@ fn main() {
                 // First do some common checks that are algorithm agnostic.
                 assert!(candidate_ingredients.len() > 0);
                 let candidate_total = candidate_ratio.magimins.total();
-                /*println!(
-                    "Testing {}",
-                    candidate_ingredients
-                        .iter()
-                        .fold("".to_owned(), |s, ing| s + &ing.name)
-                );*/
                 if candidate_total > target.max {
-                    /*println!(
-                        "Bailing because total {} is more than {}",
-                        candidate_total, target.max
-                    );*/
                     return false;
                 }
 
