@@ -749,8 +749,8 @@ pub struct Args {
     #[arg(short, long, value_enum, value_name="recipe", default_value_t=Recipe::HEALTH)]
     recipe: Recipe,
 }
-
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
 
     let target = IngredientRatio {
