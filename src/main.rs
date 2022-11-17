@@ -4,6 +4,7 @@ use ::regex;
 use ::regex::Regex;
 use clap::{Parser, ValueEnum};
 use lazy_static::lazy_static;
+use std::array;
 use std::fmt;
 use std::ops;
 
@@ -35,6 +36,16 @@ impl Magimins {
 
     pub fn as_array(&self) -> [usize; 5] {
         [self.a, self.b, self.c, self.d, self.e]
+    }
+
+    pub fn from_array(magimins: [usize; 5]) -> Magimins {
+        Magimins::new(
+            magimins[0],
+            magimins[1],
+            magimins[2],
+            magimins[3],
+            magimins[4],
+        )
     }
 }
 
@@ -118,7 +129,7 @@ pub struct Ingredient {
 impl PartialEq for Ingredient {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.mutamin == other.mutamin
+        self.name == other.name
     }
 }
 
@@ -338,42 +349,39 @@ pub struct TargetRecipe {
  * with a callback indicating whether to early abort a given recipe,
  * and a callback to accept a recipe that passes validation.
  */
-pub fn enumerate<'a, EarlyExitCb, SendRecipeCb>(
+pub fn enumerate<'a, RecipeCb>(
+    mandatory_ingredient: &'a (Ingredient, Option<usize>),
     ingredient_pool: &'a [(Ingredient, Option<usize>)],
     max_ingredients: usize,
     // Recipe so far. Must not change any existing values. Can append new values.
     current_ingredients: &mut Vec<&'a Ingredient>,
     mut current_ratio: PotionAttributes,
-    exit_cb: &mut EarlyExitCb,
-    cb: &mut SendRecipeCb,
+    cb: &mut RecipeCb,
 ) where
-    EarlyExitCb: FnMut(&[&'a Ingredient], &PotionAttributes) -> bool,
-    SendRecipeCb: FnMut(&[&'a Ingredient], &PotionAttributes),
+    RecipeCb: FnMut(&[&'a Ingredient], &PotionAttributes) -> bool,
 {
-    assert!(ingredient_pool.len() > 0);
     let max_current_ingredient = (max_ingredients - current_ingredients.len())
-        .min(ingredient_pool[0].1.unwrap_or(max_ingredients));
+        .min(mandatory_ingredient.1.unwrap_or(max_ingredients));
     assert!(max_current_ingredient > 0);
     for i in 1..=max_current_ingredient {
-        current_ingredients.push(&ingredient_pool[0].0);
-        current_ratio = &current_ratio + &ingredient_pool[0].0;
-        if exit_cb(current_ingredients.as_slice(), &current_ratio) {
+        current_ingredients.push(&mandatory_ingredient.0);
+        current_ratio = &current_ratio + &mandatory_ingredient.0;
+        if !cb(current_ingredients.as_slice(), &current_ratio) {
             return;
         }
-        cb(current_ingredients.as_slice(), &current_ratio);
         if current_ingredients.len() >= max_ingredients {
             return;
         }
 
         let current_ingredients_len = current_ingredients.len();
-        for j in 1..(ingredient_pool.len() - 1) {
+        for j in 1..ingredient_pool.len() {
             // Recurse starting from the smallest ingredients to skip coarse prefixes.
             enumerate(
-                &ingredient_pool[ingredient_pool.len() - j..],
+                &ingredient_pool[ingredient_pool.len() - j],
+                &ingredient_pool[ingredient_pool.len() - j + 1..],
                 max_ingredients,
                 current_ingredients,
                 current_ratio.clone(),
-                exit_cb,
                 cb,
             );
             current_ingredients.truncate(current_ingredients_len);
@@ -740,8 +748,7 @@ pub struct Args {
     recipe: Recipe,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let args = Args::parse();
 
     let target = IngredientRatio {
@@ -766,6 +773,9 @@ async fn main() {
         SolveAlgorithm::APPROXIMATE => true,
     });
     ingredients.sort();
+    for ing in &ingredients {
+        println!("{}", ing.0.name);
+    }
     let mut acc: Vec<(Vec<&Ingredient>, PotionAttributes)> = Vec::new();
 
     println!(
@@ -779,19 +789,34 @@ async fn main() {
     for i in 0..ingredients.len() {
         let mut ingredients_vec = Vec::new();
         ingredients_vec.reserve_exact(target.max);
+        println!("starting from the top");
         enumerate(
-            &ingredients[i..],
+            &ingredients[i],
+            &ingredients[i + 1..],
             target.count,
             &mut ingredients_vec,
             PotionAttributes::default(),
             &mut |candidate_ingredients: &[&Ingredient],
                   candidate_ratio: &PotionAttributes|
              -> bool {
+                // Return false to tell the enumerator to abort this recipe.
+                // First do some common checks that are algorithm agnostic.
                 assert!(candidate_ingredients.len() > 0);
-                if candidate_ratio.magimins.total() > target.max {
-                    return true;
-                }
                 let candidate_total = candidate_ratio.magimins.total();
+                /*println!(
+                    "Testing {}",
+                    candidate_ingredients
+                        .iter()
+                        .fold("".to_owned(), |s, ing| s + &ing.name)
+                );*/
+                if candidate_total > target.max {
+                    /*println!(
+                        "Bailing because total {} is more than {}",
+                        candidate_total, target.max
+                    );*/
+                    return false;
+                }
+
                 let last_ingredient_magimins = candidate_ingredients.last().unwrap().mutamin;
                 let remaining_ingredients_count = target.count - candidate_ingredients.len();
                 if (candidate_total + (last_ingredient_magimins * remaining_ingredients_count))
@@ -799,27 +824,27 @@ async fn main() {
                 {
                     return false;
                 }
-                return false;
-            },
-            &mut |candidate_ingredients: &[&Ingredient], candidate_ratio| {
-                if candidate_ratio.magimins.total() < target.min {
-                    return;
+
+                if candidate_total < target.min {
+                    return true;
                 }
+
+                // Algorithm specific checks.
                 match args.mode {
                     SolveAlgorithm::EXACT => {
                         match candidate_ratio.satisfying_ratio(&target) {
                             None => {
-                                return;
+                                return true;
                             }
                             Some(0) => {
-                                return;
+                                return true;
                             }
                             Some(s) => {}
                         };
                         print(
                             "++ ",
                             candidate_ingredients.len(),
-                            candidate_ratio.magimins.total(),
+                            candidate_total,
                             candidate_ratio.sense_score(),
                             candidate_ingredients
                                 .iter()
@@ -831,26 +856,113 @@ async fn main() {
                     SolveAlgorithm::APPROXIMATE => {
                         if acc.len() == 0 {
                             acc.push((candidate_ingredients.to_vec(), candidate_ratio.clone()));
-                            return;
+                            return true;
                         }
                         let current_best = acc.last().unwrap();
                         let current_best_recipe = &current_best.0;
                         let current = &current_best.1;
 
+                        let scaled_expected_ratio_array = scaled_expected_ratio.as_array();
                         let current_rms = rms(
-                            scaled_expected_ratio.as_array(),
+                            scaled_expected_ratio_array,
                             target.max,
                             current.magimins.as_array(),
                         );
+                        let candidate_ratio_magimins_array = candidate_ratio.magimins.as_array();
                         let new_rms = rms(
-                            scaled_expected_ratio.as_array(),
+                            scaled_expected_ratio_array,
                             target.max,
-                            candidate_ratio.magimins.as_array(),
+                            candidate_ratio_magimins_array,
                         );
-                        if current_best_recipe.len() < candidate_ingredients.len()
-                            || (current_best_recipe.len() == candidate_ingredients.len()
-                                && new_rms < current_rms)
-                        {
+                        // TODO flag to control if bigger is always better.
+                        if current_best_recipe.len() <= candidate_ingredients.len() {
+                            if new_rms > current_rms {
+                                let mut potential_ratio_magimins_array =
+                                    candidate_ratio_magimins_array;
+                                let mut useful_deltas: [usize; 5] = [0; 5];
+                                for i in 0..scaled_expected_ratio_array.len() {
+                                    if scaled_expected_ratio_array[i] != 0 {
+                                        if scaled_expected_ratio_array[i]
+                                            > candidate_ratio_magimins_array[i]
+                                        {
+                                            useful_deltas[i] = scaled_expected_ratio_array[i]
+                                                .abs_diff(candidate_ratio_magimins_array[i]);
+                                        }
+                                    }
+                                }
+
+                                let mut magimins_remaining = target.max - candidate_total;
+
+                                loop {
+                                    //println!("magimins remaining: {}", magimins_remaining);
+                                    assert!(magimins_remaining < target.max);
+                                    if magimins_remaining == 0 {
+                                        break;
+                                    }
+
+                                    let mut delta_indices = [false; 5];
+                                    let mut delta_indices_count = 0;
+                                    let mut largest_delta = 0;
+                                    let mut next_delta = 0;
+                                    for i in 0..useful_deltas.len() {
+                                        let delta = useful_deltas[i];
+                                        if delta > largest_delta {
+                                            next_delta = largest_delta;
+                                            largest_delta = delta;
+                                            delta_indices = [false; 5];
+                                            delta_indices[i] = true;
+                                            delta_indices_count = 1;
+                                        } else if delta == largest_delta {
+                                            delta_indices[i] = true;
+                                            delta_indices_count += 1;
+                                        } else if delta > next_delta {
+                                            next_delta = useful_deltas[i];
+                                        }
+                                    }
+                                    //println!("delta indices: {}", delta_indices_count);
+                                    if delta_indices_count == 0 {
+                                        break;
+                                    }
+                                    //println!("largest delta: {}, next delta: {}", largest_delta, next_delta);
+                                    let computed_delta = largest_delta - next_delta;
+                                    let needed_magimins = computed_delta * delta_indices_count;
+                                    //println!("needed magimins: {}, magimins remaining: {}", needed_magimins, magimins_remaining);
+                                    if needed_magimins <= magimins_remaining {
+                                        // Blindly add the delta to every index needing it.
+                                        for i in 0..useful_deltas.len() {
+                                            if delta_indices[i] {
+                                                potential_ratio_magimins_array[i] += computed_delta;
+                                                useful_deltas[i] -= computed_delta;
+                                            }
+                                        }
+                                        magimins_remaining -= needed_magimins;
+                                    } else {
+                                        // Need to distribute the remainder equally.
+                                        let available_delta =
+                                            magimins_remaining / delta_indices_count;
+                                        magimins_remaining -= available_delta * delta_indices_count;
+                                        for i in 0..useful_deltas.len() {
+                                            if delta_indices[i] {
+                                                potential_ratio_magimins_array[i] +=
+                                                    available_delta;
+
+                                                useful_deltas[i] -= available_delta;
+                                                if magimins_remaining > 0 {
+                                                    potential_ratio_magimins_array[i] += 1;
+                                                    magimins_remaining -= 1;
+                                                    useful_deltas[i] -= 1;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                let potential_rms = rms(
+                                    scaled_expected_ratio_array,
+                                    target.max,
+                                    potential_ratio_magimins_array,
+                                );
+                                return potential_rms < current_rms;
+                            }
                             println!(
                                 "total: {}, {}, error: {}",
                                 candidate_ratio.magimins.total(),
@@ -858,7 +970,7 @@ async fn main() {
                                 new_rms,
                             );
                             print(
-                                "++",
+                                "++ ",
                                 candidate_ingredients.len(),
                                 candidate_ratio.magimins.total(),
                                 candidate_ratio.sense_score(),
@@ -871,6 +983,7 @@ async fn main() {
                         }
                     }
                 }
+                return true;
             },
         );
         ingredients_vec.clear();

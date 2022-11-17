@@ -50,7 +50,6 @@ AntleredJelly a30 -feel +sight $25
 ElectrocutionEel a10 b10 c10 +sight $41
 CopperDollop a15 b15 c15 d15 $86
 Saltwatermelon d40 -sight $40
-ReefRadish b30 -taste +sound $29
 SlappingTurtlesShell a20 b20 $41
 StaticSpiderling e30 -sight +sound $45
 SquidVine a20 b20 c15 e15 $122
@@ -104,13 +103,12 @@ LustrousPearl d32 +sight $120
 // PoisonQuartz a64 b48 d32 -sound $740
 // StalkingSkeletonsFibula c40 d40 e16 $75
 DjinnBlossom a24 d8 +taste +smell $68
-ShallowGraveEnoki a32 b64 c64 d32 $200
 // OwlBearPheromones e64 -smell $200
 // ChimeraWaste c64 d32 -smell $59
 // BouyantBlowfish a96 c48 -sight -sound $138
 // FeatheredGelatin d48 +feel -smell $62
 // MedusaSpore b48 d16 -taste +smell $47
-// WatchdogDaisy b16 d48 $83
+// WatchdogDaisy b16 d48 $re83
 PhoenixTear b24 c24 d8 +feel $41
 SequinedCustard c32 e16 +sight $84
 EmberOfMana a24 b24 c24 d24 e24 $330
@@ -121,3 +119,6 @@ LamiasShedScales d48 e16 $220
 Bioplasm b48 c32 d16 -sight +sound $125
 HangmanEel a24 b24 c24 $190
 
+
+ShallowGraveEnoki a32 b64 c64 d32 $200
+ReefRadish b30 -taste +sound $29
