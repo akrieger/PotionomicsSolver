@@ -333,14 +333,6 @@ pub struct PotionRecipe {
     cost: usize,
 }
 
-#[derive(Default, Debug, Clone)]
-pub struct TargetRecipe {
-    // attributes.magimins is the ideal recipe ratio
-    attributes: PotionAttributes,
-    min_magimins: usize,
-    max_magimins: usize,
-}
-
 /**
  * Enumerates all recipes using at least one of the first ingredient
  * of a given ingredient pool for the all the potential inputs,
@@ -767,7 +759,7 @@ pub enum SpecificSharedState {
     },
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 64)]
 async fn main() {
     let args = Args::parse();
 
@@ -807,7 +799,7 @@ async fn main() {
             // Scale the target ratio up based on the magmins we expect.
             target_base.magimins = target_base.max / &target_base.magimins;
             SpecificSharedState::Approximate {
-                global_best_rms: Arc::new(atomic_float::AtomicF64::new(0.0)),
+                global_best_rms: Arc::new(atomic_float::AtomicF64::new(f64::NAN)),
                 thread_best_recipes: Arc::new(Mutex::new(Vec::new())),
             }
         }
@@ -902,6 +894,7 @@ async fn main() {
                                 target.max,
                                 candidate_ratio_magimins_array,
                             );
+                            let mut current_rms = global_best_rms.load(atomic::Ordering::Acquire);
                             // TODO flag to control if bigger is always better.
                             if thread_best_recipes.is_empty() {
                                 let potion_price = candidate_ingredients
@@ -924,14 +917,13 @@ async fn main() {
                                     cost: potion_price,
                                 });
                                 return true;
-                            }
-
+                            } else
                             // If the candidate recipe is at least as good as a recipe we've already found
                             if thread_best_recipes.last().unwrap().ingredients.len()
                                 <= candidate_ingredients.len()
                             {
-                                let current_rms = global_best_rms.load(atomic::Ordering::Acquire);
                                 // But if it's got a worse error than the current global best.
+                                // nb. if current_rms is NaN, as it is when initializing, then this returns false.
                                 if new_rms > current_rms {
                                     // Then project if we can possibly beat the global best with what we've got.
                                     let mut potential_ratio_magimins_array =
@@ -1047,6 +1039,23 @@ async fn main() {
                                     attributes: candidate_ratio.clone(),
                                     cost: potion_price,
                                 });
+                                loop {
+                                    let old_best_rms = global_best_rms.compare_and_swap(
+                                        current_rms,
+                                        new_rms,
+                                        std::sync::atomic::Ordering::AcqRel,
+                                    );
+                                    // Either we succeeded.
+                                    if current_rms == old_best_rms {
+                                        break;
+                                    }
+                                    current_rms = old_best_rms;
+                                    // or someone else already beat us with a better score
+                                    if current_rms <= new_rms {
+                                        break;
+                                    }
+                                    // Else we try again.
+                                }
                             }
                         }
                     }
@@ -1054,7 +1063,7 @@ async fn main() {
                 },
             );
             ingredients_vec.clear();
-            drop(state);
+            println!("All done with {}!", i);
         })));
     }
     /*
