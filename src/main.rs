@@ -759,8 +759,7 @@ pub enum SpecificSharedState {
     },
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 64)]
-async fn main() {
+fn main() {
     let args = Args::parse();
 
     let mut target_base = IngredientRatio {
@@ -806,227 +805,69 @@ async fn main() {
         _ => SpecificSharedState::Exact,
     };
 
-    let mut futs = Vec::new();
-
-    for i in 0..shared_ingredients.len() {
-        let state = Arc::new(SolveState {
-            ingredients: shared_ingredients.clone(),
-            acc: shared_acc.clone(),
-            target: target_base.clone(),
-            specific_state: shared_specific_state.clone(),
-        });
-        futs.push(Box::pin(tokio::spawn(async move {
-            let mut ingredients_vec = Vec::new();
-            ingredients_vec.reserve_exact(target_base.max);
-            println!("starting from the top");
-            enumerate(
-                &(state.ingredients[i..]),
-                state.target.count,
-                &mut ingredients_vec,
-                PotionAttributes::default(),
-                &mut |candidate_ingredients: &[&Ingredient],
-                      candidate_ratio: &PotionAttributes|
-                 -> bool {
-                    // Return false to tell the enumerator to abort this recipe.
-                    // First do some common checks that are algorithm agnostic.
-                    let target = &state.target;
-                    assert!(candidate_ingredients.len() > 0);
-                    let candidate_total = candidate_ratio.magimins.total();
-                    if candidate_total > target.max {
-                        return false;
-                    }
-
-                    let last_ingredient_magimins = candidate_ingredients.last().unwrap().mutamin;
-                    let remaining_ingredients_count = target.count - candidate_ingredients.len();
-                    if (candidate_total + (last_ingredient_magimins * remaining_ingredients_count))
-                        < target.min
-                    {
-                        return false;
-                    }
-
-                    if candidate_total < target.min {
-                        return true;
-                    }
-
-                    // Algorithm specific checks.
-                    match &state.specific_state {
-                        SpecificSharedState::Exact => {
-                            match candidate_ratio.satisfying_ratio(&target) {
-                                None => {
-                                    return true;
-                                }
-                                Some(0) => {
-                                    return true;
-                                }
-                                Some(_) => {}
-                            };
-                            let potion_price = candidate_ingredients
-                                .iter()
-                                .fold(0, |p, ingredient| p + ingredient.price);
-                            print(
-                                "++ ",
-                                candidate_ingredients.len(),
-                                candidate_total,
-                                candidate_ratio.sense_score(),
-                                potion_price,
-                                candidate_ingredients,
-                            );
-                            state.acc.lock().unwrap().push(PotionRecipe {
-                                ingredients: candidate_ingredients
-                                    .iter()
-                                    .map(|&x| x.clone())
-                                    .collect(),
-                                attributes: candidate_ratio.clone(),
-                                cost: potion_price,
-                            });
+    rayon::scope(|s| {
+        for i in 0..shared_ingredients.len() {
+            let state = Arc::new(SolveState {
+                ingredients: shared_ingredients.clone(),
+                acc: shared_acc.clone(),
+                target: target_base.clone(),
+                specific_state: shared_specific_state.clone(),
+            });
+            s.spawn(move |_| {
+                let mut ingredients_vec = Vec::new();
+                ingredients_vec.reserve_exact(target_base.max);
+                println!("starting {} from the top", i);
+                enumerate(
+                    &(state.ingredients[i..]),
+                    state.target.count,
+                    &mut ingredients_vec,
+                    PotionAttributes::default(),
+                    &mut |candidate_ingredients: &[&Ingredient],
+                          candidate_ratio: &PotionAttributes|
+                     -> bool {
+                        // Return false to tell the enumerator to abort this recipe.
+                        // First do some common checks that are algorithm agnostic.
+                        let target = &state.target;
+                        assert!(candidate_ingredients.len() > 0);
+                        let candidate_total = candidate_ratio.magimins.total();
+                        if candidate_total > target.max {
+                            return false;
                         }
-                        &SpecificSharedState::Approximate {
-                            ref global_best_rms,
-                            ref thread_best_recipes,
-                        } => {
-                            let mut thread_best_recipes = thread_best_recipes.lock().unwrap();
-                            let scaled_expected_ratio_array = state.target.magimins.as_array();
 
-                            let candidate_ratio_magimins_array =
-                                candidate_ratio.magimins.as_array();
-                            let new_rms = rms(
-                                scaled_expected_ratio_array,
-                                target.max,
-                                candidate_ratio_magimins_array,
-                            );
-                            let mut current_rms = global_best_rms.load(atomic::Ordering::Acquire);
-                            // TODO flag to control if bigger is always better.
-                            if thread_best_recipes.is_empty() {
+                        let last_ingredient_magimins =
+                            candidate_ingredients.last().unwrap().mutamin;
+                        let remaining_ingredients_count =
+                            target.count - candidate_ingredients.len();
+                        if (candidate_total
+                            + (last_ingredient_magimins * remaining_ingredients_count))
+                            < target.min
+                        {
+                            return false;
+                        }
+
+                        if candidate_total < target.min {
+                            return true;
+                        }
+
+                        // Algorithm specific checks.
+                        match &state.specific_state {
+                            SpecificSharedState::Exact => {
+                                match candidate_ratio.satisfying_ratio(&target) {
+                                    None => {
+                                        return true;
+                                    }
+                                    Some(0) => {
+                                        return true;
+                                    }
+                                    Some(_) => {}
+                                };
                                 let potion_price = candidate_ingredients
                                     .iter()
                                     .fold(0, |p, ingredient| p + ingredient.price);
                                 print(
                                     "++ ",
                                     candidate_ingredients.len(),
-                                    candidate_ratio.magimins.total(),
-                                    candidate_ratio.sense_score(),
-                                    potion_price,
-                                    candidate_ingredients,
-                                );
-                                thread_best_recipes.push(PotionRecipe {
-                                    ingredients: candidate_ingredients
-                                        .iter()
-                                        .map(|&x| x.clone())
-                                        .collect(),
-                                    attributes: candidate_ratio.clone(),
-                                    cost: potion_price,
-                                });
-                                return true;
-                            } else
-                            // If the candidate recipe is at least as good as a recipe we've already found
-                            if thread_best_recipes.last().unwrap().ingredients.len()
-                                <= candidate_ingredients.len()
-                            {
-                                // But if it's got a worse error than the current global best.
-                                // nb. if current_rms is NaN, as it is when initializing, then this returns false.
-                                if new_rms > current_rms {
-                                    // Then project if we can possibly beat the global best with what we've got.
-                                    let mut potential_ratio_magimins_array =
-                                        candidate_ratio_magimins_array;
-                                    let mut useful_deltas: [usize; 5] = [0; 5];
-                                    for i in 0..scaled_expected_ratio_array.len() {
-                                        if scaled_expected_ratio_array[i] != 0 {
-                                            if scaled_expected_ratio_array[i]
-                                                > candidate_ratio_magimins_array[i]
-                                            {
-                                                useful_deltas[i] = scaled_expected_ratio_array[i]
-                                                    .abs_diff(candidate_ratio_magimins_array[i]);
-                                            }
-                                        }
-                                    }
-
-                                    let mut magimins_remaining = target.max - candidate_total;
-
-                                    loop {
-                                        //println!("magimins remaining: {}", magimins_remaining);
-                                        assert!(magimins_remaining < target.max);
-                                        if magimins_remaining == 0 {
-                                            break;
-                                        }
-
-                                        let mut delta_indices = [false; 5];
-                                        let mut delta_indices_count = 0;
-                                        let mut largest_delta = 0;
-                                        let mut next_delta = 0;
-                                        for i in 0..useful_deltas.len() {
-                                            let delta = useful_deltas[i];
-                                            if delta > largest_delta {
-                                                next_delta = largest_delta;
-                                                largest_delta = delta;
-                                                delta_indices = [false; 5];
-                                                delta_indices[i] = true;
-                                                delta_indices_count = 1;
-                                            } else if delta == largest_delta {
-                                                delta_indices[i] = true;
-                                                delta_indices_count += 1;
-                                            } else if delta > next_delta {
-                                                next_delta = useful_deltas[i];
-                                            }
-                                        }
-                                        //println!("delta indices: {}", delta_indices_count);
-                                        if delta_indices_count == 0 {
-                                            break;
-                                        }
-                                        //println!("largest delta: {}, next delta: {}", largest_delta, next_delta);
-                                        let computed_delta = largest_delta - next_delta;
-                                        let needed_magimins = computed_delta * delta_indices_count;
-                                        //println!("needed magimins: {}, magimins remaining: {}", needed_magimins, magimins_remaining);
-                                        if needed_magimins <= magimins_remaining {
-                                            // Blindly add the delta to every index needing it.
-                                            for i in 0..useful_deltas.len() {
-                                                if delta_indices[i] {
-                                                    potential_ratio_magimins_array[i] +=
-                                                        computed_delta;
-                                                    useful_deltas[i] -= computed_delta;
-                                                }
-                                            }
-                                            magimins_remaining -= needed_magimins;
-                                        } else {
-                                            // Need to distribute the remainder equally.
-                                            let available_delta =
-                                                magimins_remaining / delta_indices_count;
-                                            magimins_remaining -=
-                                                available_delta * delta_indices_count;
-                                            for i in 0..useful_deltas.len() {
-                                                if delta_indices[i] {
-                                                    potential_ratio_magimins_array[i] +=
-                                                        available_delta;
-
-                                                    useful_deltas[i] -= available_delta;
-                                                    if magimins_remaining > 0 {
-                                                        potential_ratio_magimins_array[i] += 1;
-                                                        magimins_remaining -= 1;
-                                                        useful_deltas[i] -= 1;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    let potential_rms = rms(
-                                        scaled_expected_ratio_array,
-                                        target.max,
-                                        potential_ratio_magimins_array,
-                                    );
-                                    return potential_rms < current_rms;
-                                }
-                                println!(
-                                    "total: {}, {}, error: {}",
-                                    candidate_ratio.magimins.total(),
-                                    candidate_ratio.magimins,
-                                    new_rms,
-                                );
-                                let potion_price = candidate_ingredients
-                                    .iter()
-                                    .fold(0, |p, ingredient| p + ingredient.price);
-                                print(
-                                    "++ ",
-                                    candidate_ingredients.len(),
-                                    candidate_ratio.magimins.total(),
+                                    candidate_total,
                                     candidate_ratio.sense_score(),
                                     potion_price,
                                     candidate_ingredients,
@@ -1039,33 +880,199 @@ async fn main() {
                                     attributes: candidate_ratio.clone(),
                                     cost: potion_price,
                                 });
-                                loop {
-                                    let old_best_rms = global_best_rms.compare_and_swap(
-                                        current_rms,
-                                        new_rms,
-                                        std::sync::atomic::Ordering::AcqRel,
+                            }
+                            &SpecificSharedState::Approximate {
+                                ref global_best_rms,
+                                ref thread_best_recipes,
+                            } => {
+                                let mut thread_best_recipes = thread_best_recipes.lock().unwrap();
+                                let scaled_expected_ratio_array = state.target.magimins.as_array();
+
+                                let candidate_ratio_magimins_array =
+                                    candidate_ratio.magimins.as_array();
+                                let new_rms = rms(
+                                    scaled_expected_ratio_array,
+                                    target.max,
+                                    candidate_ratio_magimins_array,
+                                );
+                                let mut current_rms =
+                                    global_best_rms.load(atomic::Ordering::Acquire);
+                                // TODO flag to control if bigger is always better.
+                                if thread_best_recipes.is_empty() {
+                                    let potion_price = candidate_ingredients
+                                        .iter()
+                                        .fold(0, |p, ingredient| p + ingredient.price);
+                                    print(
+                                        "++ ",
+                                        candidate_ingredients.len(),
+                                        candidate_ratio.magimins.total(),
+                                        candidate_ratio.sense_score(),
+                                        potion_price,
+                                        candidate_ingredients,
                                     );
-                                    // Either we succeeded.
-                                    if current_rms == old_best_rms {
-                                        break;
+                                    thread_best_recipes.push(PotionRecipe {
+                                        ingredients: candidate_ingredients
+                                            .iter()
+                                            .map(|&x| x.clone())
+                                            .collect(),
+                                        attributes: candidate_ratio.clone(),
+                                        cost: potion_price,
+                                    });
+                                    return true;
+                                } else
+                                // If the candidate recipe is at least as good as a recipe we've already found
+                                if thread_best_recipes.last().unwrap().ingredients.len()
+                                    <= candidate_ingredients.len()
+                                {
+                                    // But if it's got a worse error than the current global best.
+                                    // nb. if current_rms is NaN, as it is when initializing, then this returns false.
+                                    if new_rms > current_rms {
+                                        // Then project if we can possibly beat the global best with what we've got.
+                                        let mut potential_ratio_magimins_array =
+                                            candidate_ratio_magimins_array;
+                                        let mut useful_deltas: [usize; 5] = [0; 5];
+                                        for i in 0..scaled_expected_ratio_array.len() {
+                                            if scaled_expected_ratio_array[i] != 0 {
+                                                if scaled_expected_ratio_array[i]
+                                                    > candidate_ratio_magimins_array[i]
+                                                {
+                                                    useful_deltas[i] =
+                                                        scaled_expected_ratio_array[i].abs_diff(
+                                                            candidate_ratio_magimins_array[i],
+                                                        );
+                                                }
+                                            }
+                                        }
+
+                                        let mut magimins_remaining = target.max - candidate_total;
+
+                                        loop {
+                                            //println!("magimins remaining: {}", magimins_remaining);
+                                            assert!(magimins_remaining < target.max);
+                                            if magimins_remaining == 0 {
+                                                break;
+                                            }
+
+                                            let mut delta_indices = [false; 5];
+                                            let mut delta_indices_count = 0;
+                                            let mut largest_delta = 0;
+                                            let mut next_delta = 0;
+                                            for i in 0..useful_deltas.len() {
+                                                let delta = useful_deltas[i];
+                                                if delta > largest_delta {
+                                                    next_delta = largest_delta;
+                                                    largest_delta = delta;
+                                                    delta_indices = [false; 5];
+                                                    delta_indices[i] = true;
+                                                    delta_indices_count = 1;
+                                                } else if delta == largest_delta {
+                                                    delta_indices[i] = true;
+                                                    delta_indices_count += 1;
+                                                } else if delta > next_delta {
+                                                    next_delta = useful_deltas[i];
+                                                }
+                                            }
+                                            //println!("delta indices: {}", delta_indices_count);
+                                            if delta_indices_count == 0 {
+                                                break;
+                                            }
+                                            //println!("largest delta: {}, next delta: {}", largest_delta, next_delta);
+                                            let computed_delta = largest_delta - next_delta;
+                                            let needed_magimins =
+                                                computed_delta * delta_indices_count;
+                                            //println!("needed magimins: {}, magimins remaining: {}", needed_magimins, magimins_remaining);
+                                            if needed_magimins <= magimins_remaining {
+                                                // Blindly add the delta to every index needing it.
+                                                for i in 0..useful_deltas.len() {
+                                                    if delta_indices[i] {
+                                                        potential_ratio_magimins_array[i] +=
+                                                            computed_delta;
+                                                        useful_deltas[i] -= computed_delta;
+                                                    }
+                                                }
+                                                magimins_remaining -= needed_magimins;
+                                            } else {
+                                                // Need to distribute the remainder equally.
+                                                let available_delta =
+                                                    magimins_remaining / delta_indices_count;
+                                                magimins_remaining -=
+                                                    available_delta * delta_indices_count;
+                                                for i in 0..useful_deltas.len() {
+                                                    if delta_indices[i] {
+                                                        potential_ratio_magimins_array[i] +=
+                                                            available_delta;
+
+                                                        useful_deltas[i] -= available_delta;
+                                                        if magimins_remaining > 0 {
+                                                            potential_ratio_magimins_array[i] += 1;
+                                                            magimins_remaining -= 1;
+                                                            useful_deltas[i] -= 1;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        let potential_rms = rms(
+                                            scaled_expected_ratio_array,
+                                            target.max,
+                                            potential_ratio_magimins_array,
+                                        );
+                                        println!("potential rms: {}, current best rms: {}", potential_rms, current_rms);
+                                        return potential_rms < current_rms;
                                     }
-                                    current_rms = old_best_rms;
-                                    // or someone else already beat us with a better score
-                                    if current_rms <= new_rms {
-                                        break;
+                                    println!(
+                                        "total: {}, {}, error: {}",
+                                        candidate_ratio.magimins.total(),
+                                        candidate_ratio.magimins,
+                                        new_rms,
+                                    );
+                                    let potion_price = candidate_ingredients
+                                        .iter()
+                                        .fold(0, |p, ingredient| p + ingredient.price);
+                                    print(
+                                        "++ ",
+                                        candidate_ingredients.len(),
+                                        candidate_ratio.magimins.total(),
+                                        candidate_ratio.sense_score(),
+                                        potion_price,
+                                        candidate_ingredients,
+                                    );
+                                    state.acc.lock().unwrap().push(PotionRecipe {
+                                        ingredients: candidate_ingredients
+                                            .iter()
+                                            .map(|&x| x.clone())
+                                            .collect(),
+                                        attributes: candidate_ratio.clone(),
+                                        cost: potion_price,
+                                    });
+                                    loop {
+                                        let old_best_rms = global_best_rms.compare_and_swap(
+                                            current_rms,
+                                            new_rms,
+                                            std::sync::atomic::Ordering::AcqRel,
+                                        );
+                                        // Either we succeeded.
+                                        if current_rms == old_best_rms {
+                                            break;
+                                        }
+                                        current_rms = old_best_rms;
+                                        // or someone else already beat us with a better score
+                                        if current_rms <= new_rms {
+                                            break;
+                                        }
+                                        // Else we try again.
                                     }
-                                    // Else we try again.
                                 }
                             }
                         }
-                    }
-                    return true;
-                },
-            );
-            ingredients_vec.clear();
-            println!("All done with {}!", i);
-        })));
-    }
+                        return true;
+                    },
+                );
+                ingredients_vec.clear();
+                println!("All done with {}!", i);
+            });
+        }
+    });
     /*
     solve(
         &ingredients.as_slice(),
