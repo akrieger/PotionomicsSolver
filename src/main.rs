@@ -7,6 +7,7 @@ use lazy_static::lazy_static;
 use std::array;
 use std::fmt;
 use std::ops;
+use std::sync::atomic;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -111,7 +112,7 @@ impl PartialOrd for Magimins {
     }
 }
 
-#[derive(Debug, Eq, Ord)]
+#[derive(Debug, Eq, Ord, Clone)]
 pub struct Ingredient {
     name: String,
 
@@ -325,13 +326,10 @@ impl PotionAttributes {
     }
 }
 
-#[derive(Default, Debug, Clone, Eq, PartialEq)]
-pub struct PotionRecipe<'a, 'b>
-where
-    'a: 'b,
-{
+#[derive(Default, Debug, Eq, PartialEq)]
+pub struct PotionRecipe {
     attributes: PotionAttributes,
-    ingredients: &'b [&'a Ingredient],
+    ingredients: Vec<Ingredient>,
     cost: usize,
 }
 
@@ -351,15 +349,16 @@ pub struct TargetRecipe {
  * with a callback indicating whether to early abort a given recipe,
  * and a callback to accept a recipe that passes validation.
  */
-pub fn enumerate<'a, RecipeCb>(
+pub fn enumerate<'a, 'b, RecipeCb>(
     ingredient_pool: &'a [(Ingredient, Option<usize>)],
     max_ingredients: usize,
     // Recipe so far. Must not change any existing values. Can append new values.
-    current_ingredients: &mut Vec<&'a Ingredient>,
+    current_ingredients: &mut Vec<&'b Ingredient>,
     mut current_ratio: PotionAttributes,
     cb: &mut RecipeCb,
 ) where
-    RecipeCb: FnMut(&[&'a Ingredient], &PotionAttributes) -> bool,
+    'a: 'b,
+    RecipeCb: FnMut(&[&'b Ingredient], &PotionAttributes) -> bool,
 {
     if ingredient_pool.len() == 0 {
         return;
@@ -368,7 +367,7 @@ pub fn enumerate<'a, RecipeCb>(
     let max_current_ingredient = (max_ingredients - current_ingredients.len())
         .min(mandatory_ingredient.1.unwrap_or(max_ingredients));
     assert!(max_current_ingredient > 0);
-    for i in 1..=max_current_ingredient {
+    for _ in 1..=max_current_ingredient {
         current_ingredients.push(&mandatory_ingredient.0);
         current_ratio = &current_ratio + &mandatory_ingredient.0;
         if !cb(current_ingredients.as_slice(), &current_ratio) {
@@ -627,13 +626,13 @@ pub fn print(
     );
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum SolveAlgorithm {
     EXACT,
     APPROXIMATE,
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum Recipe {
     HEALTH,
     MANA,
@@ -751,11 +750,28 @@ pub struct Args {
     #[arg(short, long, value_enum, value_name="recipe", default_value_t=Recipe::HEALTH)]
     recipe: Recipe,
 }
+
+pub struct SolveState {
+    ingredients: Arc<Vec<(Ingredient, Option<usize>)>>,
+    target: IngredientRatio,
+    acc: Arc<Mutex<Vec<PotionRecipe>>>,
+    specific_state: SpecificSharedState,
+}
+
+#[derive(Clone)]
+pub enum SpecificSharedState {
+    Exact,
+    Approximate {
+        global_best_rms: Arc<atomic_float::AtomicF64>,
+        thread_best_recipes: Arc<Mutex<Vec<PotionRecipe>>>,
+    },
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
 
-    let target_base = IngredientRatio {
+    let mut target_base = IngredientRatio {
         magimins: args.recipe.to_magimins(),
 
         taste: 0,
@@ -770,38 +786,50 @@ async fn main() {
         price: 0,
     };
 
-    let mut ingredients_base = Arc::new(Mutex::new(Ingredient::load(&args.ingredients)));
-    let old_len = ingredients_base.len();
-    ingredients_base
-        .lock()
-        .unwrap()
-        .retain(|(i, _)| match args.mode {
-            SolveAlgorithm::EXACT => target_base.is_possible_ingredient(i),
-            SolveAlgorithm::APPROXIMATE => true,
-        });
-    ingredients_base.sort();
-    let acc: Arc<Mutex<Vec<(Vec<&Ingredient>, PotionAttributes)>>> =
-        Arc::new(Mutex::new(Vec::new()));
+    let mut ingredients = Ingredient::load(&args.ingredients);
+    let old_len = ingredients.len();
+    ingredients.retain(|(i, _)| match args.mode {
+        SolveAlgorithm::EXACT => target_base.is_possible_ingredient(i),
+        SolveAlgorithm::APPROXIMATE => true,
+    });
+    ingredients.sort();
 
     println!(
         "Found {} ingredients, only {} are candidates",
         old_len,
-        ingredients_base.len()
+        ingredients.len()
     );
+
+    let shared_ingredients = Arc::new(ingredients);
+    let shared_acc = Arc::new(Mutex::new(Vec::new()));
+    let shared_specific_state = match args.mode {
+        SolveAlgorithm::APPROXIMATE => {
+            // Scale the target ratio up based on the magmins we expect.
+            target_base.magimins = target_base.max / &target_base.magimins;
+            SpecificSharedState::Approximate {
+                global_best_rms: Arc::new(atomic_float::AtomicF64::new(0.0)),
+                thread_best_recipes: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+        _ => SpecificSharedState::Exact,
+    };
 
     let mut futs = Vec::new();
 
-    for i in 0..ingredients_base.len() {
-        let target = target_base.clone();
-        let scaled_expected_ratio = target.max / &target.magimins;
-        let ingredients = ingredients_base.as_slice();
+    for i in 0..shared_ingredients.len() {
+        let state = Arc::new(SolveState {
+            ingredients: shared_ingredients.clone(),
+            acc: shared_acc.clone(),
+            target: target_base.clone(),
+            specific_state: shared_specific_state.clone(),
+        });
         futs.push(Box::pin(tokio::spawn(async move {
             let mut ingredients_vec = Vec::new();
-            ingredients_vec.reserve_exact(target.max);
+            ingredients_vec.reserve_exact(target_base.max);
             println!("starting from the top");
             enumerate(
-                &ingredients[i..],
-                target.count,
+                &(state.ingredients[i..]),
+                state.target.count,
                 &mut ingredients_vec,
                 PotionAttributes::default(),
                 &mut |candidate_ingredients: &[&Ingredient],
@@ -809,6 +837,7 @@ async fn main() {
                  -> bool {
                     // Return false to tell the enumerator to abort this recipe.
                     // First do some common checks that are algorithm agnostic.
+                    let target = &state.target;
                     assert!(candidate_ingredients.len() > 0);
                     let candidate_total = candidate_ratio.magimins.total();
                     if candidate_total > target.max {
@@ -828,8 +857,8 @@ async fn main() {
                     }
 
                     // Algorithm specific checks.
-                    match args.mode {
-                        SolveAlgorithm::EXACT => {
+                    match &state.specific_state {
+                        SpecificSharedState::Exact => {
                             match candidate_ratio.satisfying_ratio(&target) {
                                 None => {
                                     return true;
@@ -837,44 +866,35 @@ async fn main() {
                                 Some(0) => {
                                     return true;
                                 }
-                                Some(s) => {}
+                                Some(_) => {}
                             };
+                            let potion_price = candidate_ingredients
+                                .iter()
+                                .fold(0, |p, ingredient| p + ingredient.price);
                             print(
                                 "++ ",
                                 candidate_ingredients.len(),
                                 candidate_total,
                                 candidate_ratio.sense_score(),
-                                candidate_ingredients
-                                    .iter()
-                                    .fold(0, |p, ingredient| p + ingredient.price),
+                                potion_price,
                                 candidate_ingredients,
                             );
-                            acc.lock()
-                                .unwrap()
-                                .push((candidate_ingredients.to_vec(), candidate_ratio.clone()));
+                            state.acc.lock().unwrap().push(PotionRecipe {
+                                ingredients: candidate_ingredients
+                                    .iter()
+                                    .map(|&x| x.clone())
+                                    .collect(),
+                                attributes: candidate_ratio.clone(),
+                                cost: potion_price,
+                            });
                         }
-                        SolveAlgorithm::APPROXIMATE => {
-                            let current_best;
-                            {
-                                let accloc = acc.lock().unwrap();
-                                if accloc.len() == 0 {
-                                    accloc.push((
-                                        candidate_ingredients.to_vec(),
-                                        candidate_ratio.clone(),
-                                    ));
-                                    return true;
-                                }
-                                current_best = accloc.last().unwrap();
-                            }
-                            let current_best_recipe = &current_best.0;
-                            let current = &current_best.1;
+                        &SpecificSharedState::Approximate {
+                            ref global_best_rms,
+                            ref thread_best_recipes,
+                        } => {
+                            let mut thread_best_recipes = thread_best_recipes.lock().unwrap();
+                            let scaled_expected_ratio_array = state.target.magimins.as_array();
 
-                            let scaled_expected_ratio_array = scaled_expected_ratio.as_array();
-                            let current_rms = rms(
-                                scaled_expected_ratio_array,
-                                target.max,
-                                current.magimins.as_array(),
-                            );
                             let candidate_ratio_magimins_array =
                                 candidate_ratio.magimins.as_array();
                             let new_rms = rms(
@@ -883,8 +903,37 @@ async fn main() {
                                 candidate_ratio_magimins_array,
                             );
                             // TODO flag to control if bigger is always better.
-                            if current_best_recipe.len() <= candidate_ingredients.len() {
+                            if thread_best_recipes.is_empty() {
+                                let potion_price = candidate_ingredients
+                                    .iter()
+                                    .fold(0, |p, ingredient| p + ingredient.price);
+                                print(
+                                    "++ ",
+                                    candidate_ingredients.len(),
+                                    candidate_ratio.magimins.total(),
+                                    candidate_ratio.sense_score(),
+                                    potion_price,
+                                    candidate_ingredients,
+                                );
+                                thread_best_recipes.push(PotionRecipe {
+                                    ingredients: candidate_ingredients
+                                        .iter()
+                                        .map(|&x| x.clone())
+                                        .collect(),
+                                    attributes: candidate_ratio.clone(),
+                                    cost: potion_price,
+                                });
+                                return true;
+                            }
+
+                            // If the candidate recipe is at least as good as a recipe we've already found
+                            if thread_best_recipes.last().unwrap().ingredients.len()
+                                <= candidate_ingredients.len()
+                            {
+                                let current_rms = global_best_rms.load(atomic::Ordering::Acquire);
+                                // But if it's got a worse error than the current global best.
                                 if new_rms > current_rms {
+                                    // Then project if we can possibly beat the global best with what we've got.
                                     let mut potential_ratio_magimins_array =
                                         candidate_ratio_magimins_array;
                                     let mut useful_deltas: [usize; 5] = [0; 5];
@@ -979,20 +1028,25 @@ async fn main() {
                                     candidate_ratio.magimins,
                                     new_rms,
                                 );
+                                let potion_price = candidate_ingredients
+                                    .iter()
+                                    .fold(0, |p, ingredient| p + ingredient.price);
                                 print(
                                     "++ ",
                                     candidate_ingredients.len(),
                                     candidate_ratio.magimins.total(),
                                     candidate_ratio.sense_score(),
-                                    candidate_ingredients
-                                        .iter()
-                                        .fold(0, |p, ingredient| p + ingredient.price),
+                                    potion_price,
                                     candidate_ingredients,
                                 );
-                                acc.lock().unwrap().push((
-                                    candidate_ingredients.to_vec(),
-                                    candidate_ratio.clone(),
-                                ));
+                                state.acc.lock().unwrap().push(PotionRecipe {
+                                    ingredients: candidate_ingredients
+                                        .iter()
+                                        .map(|&x| x.clone())
+                                        .collect(),
+                                    attributes: candidate_ratio.clone(),
+                                    cost: potion_price,
+                                });
                             }
                         }
                     }
@@ -1000,6 +1054,7 @@ async fn main() {
                 },
             );
             ingredients_vec.clear();
+            drop(state);
         })));
     }
     /*

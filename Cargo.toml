@@ -14,3 +14,4 @@ strum_macros = "0.20"
 lazy_static = "1.4.0"
 clap = { version = "4.0.23", features = ["derive"] }
 tokio = { version = "1.21.2", features = ["full"] }
+atomic_float = "0.1.0"
