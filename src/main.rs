@@ -675,7 +675,6 @@ pub struct Args {
     recipe: Recipe,
 }
 
-
 #[derive(Clone)]
 pub struct SolveState<'a> {
     shared_state: Arc<SharedState<'a>>,
@@ -738,31 +737,27 @@ async fn main() {
         acc: Mutex::new(Vec::new()),
     });
     let shared_specific_state = match args.mode {
-        SolveAlgorithm::APPROXIMATE => {
-            SpecificState::Approximate {
-                global_best_rms: Arc::new(atomic_float::AtomicF64::new(0.0)),
-            }
-        }
+        SolveAlgorithm::APPROXIMATE => SpecificState::Approximate {
+            global_best_rms: Arc::new(atomic_float::AtomicF64::new(0.0)),
+        },
         _ => SpecificState::Exact,
     };
 
     let mut futs = Vec::new();
 
     for i in 0..shared_state.ingredients.len() {
-        let shared_state = SolveState {
-            shared_state: shared_state.clone(),
-            specific_state: shared_specific_state.clone(),
-        };
+        let shared_state = shared_state.clone();
+        let specific_state = shared_specific_state.clone();
         futs.push(Box::pin(tokio::spawn(async move {
-            let mut state = shared_state.clone();
-            let mut thread_best_recipes= Vec::new();
+            let shared_state = shared_state;
+            let specific_state = specific_state;
+            let mut thread_best_recipes = Vec::new();
             let mut ingredients_vec = Vec::new();
-            let target = &state.shared_state.target;
-            let ingredients = &state.shared_state.ingredients;
+            let target = &shared_state.target;
             ingredients_vec.reserve_exact(target.max);
             println!("starting from the top");
             enumerate(
-                &(ingredients[i..]),
+                &(shared_state.ingredients[i..]),
                 target.count,
                 &mut ingredients_vec,
                 PotionAttributes::default(),
@@ -790,7 +785,7 @@ async fn main() {
                     }
 
                     // Algorithm specific checks.
-                    match &state.specific_state {
+                    match &specific_state {
                         SpecificState::Exact => {
                             match candidate_ratio.satisfying_ratio(&target) {
                                 None => {
@@ -812,7 +807,7 @@ async fn main() {
                                 potion_price,
                                 candidate_ingredients,
                             );
-                            state.shared_state.acc.lock().unwrap().push(PotionRecipe {
+                            shared_state.acc.lock().unwrap().push(PotionRecipe {
                                 ingredients: candidate_ingredients.to_vec(),
                                 attributes: candidate_ratio.clone(),
                                 cost: potion_price,
@@ -964,7 +959,7 @@ async fn main() {
                                     potion_price,
                                     candidate_ingredients,
                                 );
-                                state.shared_state.acc.lock().unwrap().push(PotionRecipe {
+                                shared_state.acc.lock().unwrap().push(PotionRecipe {
                                     ingredients: candidate_ingredients.to_vec(),
                                     attributes: candidate_ratio.clone(),
                                     cost: potion_price,
