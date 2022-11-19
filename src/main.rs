@@ -731,8 +731,8 @@ async fn main() {
         sound: 0,
 
         count: 10,
-        min: 520,
-        max: 575,
+        min: 570,
+        max: 720,
         price: 0,
     };
 
