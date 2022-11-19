@@ -226,7 +226,7 @@ impl Ingredient {
     }
 }
 
-#[derive(Default, Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Default, Debug, Clone, Eq, PartialEq, Ord)]
 pub struct PotionAttributes {
     magimins: Magimins,
     taste: isize,
@@ -234,6 +234,17 @@ pub struct PotionAttributes {
     sight: isize,
     smell: isize,
     sound: isize,
+}
+
+impl PartialOrd for PotionAttributes {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let mut cmp = self.magimins.partial_cmp(&other.magimins);
+        if cmp == Some(std::cmp::Ordering::Equal) {
+            cmp = self.sense_score().partial_cmp(&other.sense_score());
+        }
+        cmp
+    }
 }
 
 impl PotionAttributes {
@@ -326,11 +337,22 @@ impl PotionAttributes {
     }
 }
 
-#[derive(Default, Debug, Eq, PartialEq)]
+#[derive(Default, Debug, Eq, PartialEq, Ord)]
 pub struct PotionRecipe {
     attributes: PotionAttributes,
     ingredients: Vec<Ingredient>,
     cost: usize,
+}
+
+impl PartialOrd for PotionRecipe {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let mut cmp = self.attributes.partial_cmp(&other.attributes);
+        if cmp == Some(std::cmp::Ordering::Equal) {
+            cmp = other.cost.partial_cmp(&self.cost);
+        }
+        cmp
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -709,7 +731,7 @@ async fn main() {
         sound: 0,
 
         count: 10,
-        min: 290,
+        min: 520,
         max: 575,
         price: 0,
     };
@@ -738,7 +760,7 @@ async fn main() {
     });
     let shared_specific_state = match args.mode {
         SolveAlgorithm::APPROXIMATE => SpecificState::Approximate {
-            global_best_rms: Arc::new(atomic_float::AtomicF64::new(0.0)),
+            global_best_rms: Arc::new(atomic_float::AtomicF64::new(f64::NAN)),
         },
         _ => SpecificState::Exact,
     };
@@ -750,8 +772,8 @@ async fn main() {
                 specific_state: shared_specific_state.clone(),
             };
             s.spawn(move |_| {
-                let mut state = shared_state.clone();
-                let mut thread_best_recipes = Vec::new();
+                let state = shared_state.clone();
+                let mut thread_best_recipes: Vec<PotionRecipe> = Vec::new();
                 let mut ingredients_vec = Vec::new();
                 let target = &state.shared_state.target;
                 let ingredients = &state.shared_state.ingredients;
@@ -803,14 +825,14 @@ async fn main() {
                                 let potion_price = candidate_ingredients
                                     .iter()
                                     .fold(0, |p, ingredient| p + ingredient.price);
-                                print(
+                                /*print(
                                     "++ ",
                                     candidate_ingredients.len(),
                                     candidate_total,
                                     candidate_ratio.sense_score(),
                                     potion_price,
                                     candidate_ingredients,
-                                );
+                                );*/
                                 state.shared_state.acc.lock().unwrap().push(PotionRecipe {
                                     ingredients: candidate_ingredients
                                         .iter()
@@ -825,8 +847,7 @@ async fn main() {
                             } => {
                                 let scaled_expected_ratio_array = target.magimins.as_array();
 
-                                let mut current_rms =
-                                    global_best_rms.load(atomic::Ordering::Acquire);
+                                let current_rms = global_best_rms.load(atomic::Ordering::Acquire);
 
                                 let candidate_ratio_magimins_array =
                                     candidate_ratio.magimins.as_array();
@@ -839,6 +860,9 @@ async fn main() {
                                 let update_global_rms = &|| {
                                     let mut current_rms = current_rms;
                                     loop {
+                                        if new_rms >= current_rms {
+                                            break;
+                                        }
                                         let old_best_rms = global_best_rms.compare_and_swap(
                                             current_rms,
                                             new_rms,
@@ -850,41 +874,15 @@ async fn main() {
                                         }
                                         current_rms = old_best_rms;
                                         // or someone else already beat us with a better score
-                                        if current_rms <= new_rms {
-                                            break;
-                                        }
                                         // Else we try again.
                                     }
                                 };
 
                                 // TODO flag to control if bigger is always better.
-                                if thread_best_recipes.is_empty() {
-                                    let potion_price = candidate_ingredients
-                                        .iter()
-                                        .fold(0, |p, ingredient| p + ingredient.price);
-                                    print(
-                                        "++ ",
-                                        candidate_ingredients.len(),
-                                        candidate_ratio.magimins.total(),
-                                        candidate_ratio.sense_score(),
-                                        potion_price,
-                                        candidate_ingredients,
-                                    );
-                                    thread_best_recipes.push(PotionRecipe {
-                                        ingredients: candidate_ingredients
-                                            .iter()
-                                            .map(|&x| x.clone())
-                                            .collect(),
-                                        attributes: candidate_ratio.clone(),
-                                        cost: potion_price,
-                                    });
-                                    update_global_rms();
-                                    return true;
-                                }
-
                                 // If the candidate recipe is at least as good as a recipe we've already found
-                                if thread_best_recipes.last().unwrap().ingredients.len()
-                                    <= candidate_ingredients.len()
+                                if thread_best_recipes.is_empty()
+                                    || thread_best_recipes.last().unwrap().ingredients.len()
+                                        <= candidate_ingredients.len()
                                 {
                                     // But if it's got a worse error than the current global best.
                                     if new_rms > current_rms {
@@ -997,7 +995,7 @@ async fn main() {
                                         potion_price,
                                         candidate_ingredients,
                                     );
-                                    state.shared_state.acc.lock().unwrap().push(PotionRecipe {
+                                    thread_best_recipes.push(PotionRecipe {
                                         ingredients: candidate_ingredients
                                             .iter()
                                             .map(|&x| x.clone())
@@ -1012,8 +1010,40 @@ async fn main() {
                         return true;
                     },
                 );
+
+                match &shared_state.specific_state {
+                    &SpecificState::Approximate { .. } => {
+                        if thread_best_recipes.len() > 0 {
+                            state
+                                .shared_state
+                                .acc
+                                .lock()
+                                .unwrap()
+                                .push(thread_best_recipes.pop().unwrap());
+                        }
+                    }
+                    _ => {
+                        state
+                            .shared_state
+                            .acc
+                            .lock()
+                            .unwrap()
+                            .append(&mut thread_best_recipes);
+                    }
+                }
                 ingredients_vec.clear();
             });
         }
     });
+    shared_state.acc.lock().unwrap().sort();
+    for recipe in shared_state.acc.lock().unwrap().iter() {
+        print(
+            "",
+            recipe.ingredients.len(),
+            recipe.attributes.magimins.total(),
+            recipe.attributes.sense_score(),
+            recipe.cost,
+            &recipe.ingredients.iter().map(|x| x).collect::<Vec<_>>()[..],
+        );
+    }
 }
